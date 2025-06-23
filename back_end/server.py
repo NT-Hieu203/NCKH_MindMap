@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify, session
 from flask_cors import CORS
 import redis
+import pickle
 from owlready2 import *
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -61,7 +62,6 @@ ONTO_AVAILABLE_PATH = "static/MINDMAP.owl"
 ontology_available = None
 current_ontology = None
 relation = None
-explication = None
 is_loaded = False
 type_ontology = None
 
@@ -72,12 +72,10 @@ def load_ontologies(type, onto_path = None):
                 ontology_available = get_ontology(f"file://{os.path.abspath(ONTO_AVAILABLE_PATH)}").load()
                 print(f"Ontology mặc định '{ONTO_AVAILABLE_PATH}' đã được tải.")
                 relation = find_relation(ontology_available)
-                entities_with_annotation_sumarry = get_entities_with_annotation(ontology_available, 'summary')
-                explication = create_explication(entities_with_annotation_sumarry)
-                return ontology_available, relation, explication
+                return ontology_available, relation
             else:
                 print(f"Warning: File ontology mặc định '{ONTO_AVAILABLE_PATH}' không tồn tại. Bỏ qua việc tải.")
-                return None, None, None
+                return None, None
         except Exception as e:
             print(f"Không thể tải ontology mặc định '{ONTO_AVAILABLE_PATH}': {e}")
     else:
@@ -86,12 +84,10 @@ def load_ontologies(type, onto_path = None):
                 ontology_available = get_ontology(f"file://{os.path.abspath(onto_path)}").load()
                 print(f"Ontology mới '{onto_path}' đã được tải.")
                 relation = find_relation(ontology_available)
-                entities_with_annotation_sumarry = get_entities_with_annotation(ontology_available, 'summary')
-                explication = create_explication(entities_with_annotation_sumarry)
-                return ontology_available, relation, explication
+                return ontology_available, relation
             else:
                 print(f"Warning: File ontology mới '{onto_path}' không tồn tại. Bỏ qua việc tải.")
-                return None, None, None
+                return None, None
         except Exception as e:
             print(f"Không thể tải ontology mới '{onto_path}': {e}")
 
@@ -302,20 +298,49 @@ def upload_pdf():
 
     return jsonify({"error": "Tệp không hợp lệ hoặc không có tệp được chọn"}), 400
 
+@app.route("/api/get_available_mindmap", methods=["GET"])
+def get_available_mindmap():
+    """Endpoint để lấy thông tin về ontology mặc định"""
+    
+    filename = 'static/clustering_tree.pkl'
+    # Corrected line: Directly use the absolute path
+    file_path = os.path.abspath(filename)
+    
+    clustering_tree = None # Initialize to None in case of error
+    try:
+        with open(file_path, 'rb') as file:
+            clustering_tree = pickle.load(file)
+    except FileNotFoundError:
+        print(f"\nLỗi: Không tìm thấy tệp {file_path}. Đảm bảo tệp tồn tại.")
+        return jsonify({
+            "message": f"Lỗi: Không tìm thấy tệp {file_path}.",
+            "initial_data": None
+        }), 404
+    except Exception as e:
+        print(f"\nĐã xảy ra lỗi khi tải file '{file_path}': {e}")
+        return jsonify({
+            "message": f"Đã xảy ra lỗi khi xử lý tệp: {e}",
+            "initial_data": None
+        }), 500
+
+    return jsonify({
+        "message": "Tệp đã được xử lý và Ontology đã được xây dựng.",
+        "initial_data": clustering_tree
+    }), 200
 
 @app.route("/api/chat_with_available_onto", methods=["POST"])
 def chat_with_available_onto_route():
-    global relation, explication, is_loaded, type_ontology, ontology_available
+    global relation, is_loaded, type_ontology, ontology_available
     if type_ontology != "Available":
         is_loaded = False
         type_ontology = "Available"
 
     if is_loaded == False:
-        ontology_available, relation, explication = load_ontologies(type_ontology)
+        ontology_available, relation = load_ontologies(type_ontology)
         is_loaded = True
     if ontology_available is None:
         return jsonify({"error": "Ontology mặc định chưa được tải hoặc không tồn tại."}), 500
-    if relation is None or explication is None:
+    if relation is None :
         return jsonify({"error": "Dữ liệu khởi tạo cho ontology mặc định chưa sẵn sàng."}), 500
 
     # TẠO SESSION MỚI nếu chưa có khi chat với ontology có sẵn
@@ -335,15 +360,23 @@ def chat_with_available_onto_route():
         return jsonify({"error": "Không có tin nhắn được cung cấp"}), 400
     start_time = time.time()
     try:
-        entities = find_entities_from_question_PP1(client, relation, explication, question, chat_histories[current_user_id])
+        entities = find_entities_from_question_PP1(client, relation, question, chat_histories[current_user_id])
         print('tìm được: ', entities)
-        raw_informations_from_ontology = find_question_info(ontology_available, json.loads(entities))
 
+        find_time = time.time()
+        raw_informations_from_ontology = find_question_info(ontology_available, model_embedding, question, json.loads(entities))
+        end_find = time.time()
+        print(f"Thời gian tìm kiếm câu hỏi trong ontology: {end_find - find_time}s")
         if len(raw_informations_from_ontology) == 0:
             raw_informations_from_ontology.append("Không có thông tin cho câu hỏi từ ontology mặc định.")
 
         k_similar_info = find_similar_info_from_raw_informations(model_embedding, question, raw_informations_from_ontology)
+
+        s_time = time.time()
         bot_response = generate_response(client, k_similar_info, question, chat_histories[current_user_id])
+        e_time = time.time()
+        print(f"Thời gian chạy: {e_time - s_time}s")
+    
     except Exception as e:
         print(f"Lỗi trong quá trình chat với ontology mặc định: {e}")
         import traceback
@@ -365,14 +398,14 @@ def chat_with_available_onto_route():
 
 @app.route("/api/chat_newOnto", methods=["POST"])
 def chat_with_new_ontology():
-    global is_loaded, type_ontology, relation, explication, current_ontology
+    global is_loaded, type_ontology, relation, current_ontology
     if type_ontology != "New":
         type_ontology = "New"
         is_loaded = False
 
     # PHẢI CÓ SESSION HỢP LỆ từ việc upload PDF trước đó
     current_user_id = get_current_session_id()
-
+    print(f"Kiểm tra session hiện tại: {current_user_id}")
     if not current_user_id:
         return jsonify({
             "error": "Không có session hợp lệ. Vui lòng upload PDF trước khi chat với ontology mới."
@@ -390,10 +423,10 @@ def chat_with_new_ontology():
     ontology_path = current_ontology_info.get('ontology_path')
     print(f"Đang sử dụng ontology mới từ: {ontology_path}")
     if is_loaded == False:
-        current_ontology, relation, explication = load_ontologies(type_ontology, ontology_path)
+        current_ontology, relation = load_ontologies(type_ontology, ontology_path)
         is_loaded = True
 
-    if current_ontology is None or relation is None or explication is None:
+    if current_ontology is None or relation is None:
         return jsonify({"error": "Không thể tải Ontology mới cho chat"}), 500
 
     data = request.json
@@ -405,11 +438,10 @@ def chat_with_new_ontology():
     start_time = time.time()
     bot_response = ""
     try:
-        entities = find_entities_from_question_PP1(client, relation, explication, question,
-                                                   chat_histories[current_user_id])
+        entities = find_entities_from_question_PP1(client, relation, question, chat_histories[current_user_id])
         print('[New] tìm được: ', entities)
 
-        raw_informations_from_ontology = find_question_info(current_ontology, json.loads(entities))
+        raw_informations_from_ontology = find_question_info(current_ontology, model_embedding, question, json.loads(entities))
         if len(raw_informations_from_ontology) == 0:
             raw_informations_from_ontology.append("[New] Không có thông tin cho câu hỏi từ ontology mới.")
 

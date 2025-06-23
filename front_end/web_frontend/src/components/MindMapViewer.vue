@@ -30,7 +30,6 @@ import * as d3 from 'd3';
 export default {
     name: "MindMapViewer",
     props: {
-        // Đổi tên prop từ rawData thành data
         data: {
             type: Array,
             default: () => []
@@ -40,8 +39,8 @@ export default {
         return {
             svgWidth: 800,
             svgHeight: 600,
-            svg: null, // D3 selection cho thẻ SVG
-            g: null, // Nhóm chứa nội dung, phục vụ zoom/pan
+            svg: null,
+            g: null,
             zoomBehavior: null,
             transform: d3.zoomIdentity,
             nodeColors: [
@@ -55,19 +54,19 @@ export default {
                 x: 0,
                 y: 0
             },
-            // Cấu hình kích thước node và khoảng cách
-            nodePadding: { horizontal: 25, vertical: 20 }, // Padding bên trong node
-            minNodeWidth: 140, // Chiều rộng tối thiểu của node
-            maxNodeWidth: 280, // Chiều rộng tối đa của node để xuống dòng
-            nodeHeightPerLine: 22, // Chiều cao ước tính cho mỗi dòng text
-            minNodeHeight: 50, // Chiều cao tối thiểu của node
-            horizontalNodeSeparation: 350, // Khoảng cách ngang giữa các node mặc định
-            verticalNodeSeparation: 120, // Khoảng cách dọc giữa các node mặc định
+            // Cấu hình động cho node và khoảng cách
+            nodePadding: { horizontal: 25, vertical: 20 },
+            minNodeWidth: 140,
+            maxNodeWidth: 280,
+            nodeHeightPerLine: 22,
+            minNodeHeight: 50,
+            // Các giá trị này sẽ được tính toán động
+            calculatedHorizontalSeparation: 350,
+            calculatedVerticalSeparation: 120,
         };
     },
     computed: {
         processedTreeData() {
-            // Sử dụng prop 'data' thay vì 'rawData'
             if (this.data.length === 0) {
                 return null;
             }
@@ -114,13 +113,12 @@ export default {
             return {
                 top: `${this.tooltip.y}px`,
                 left: `${this.tooltip.x}px`,
-                transform: 'translate(-50%, -110%)', // Đảm bảo tooltip ở trên và căn giữa
+                transform: 'translate(-50%, -110%)',
                 display: this.tooltip.visible ? 'block' : 'none',
             };
         }
     },
     watch: {
-        // Lắng nghe sự thay đổi của prop 'data'
         data: {
             handler(newVal) {
                 if (newVal && newVal.length > 0) {
@@ -154,283 +152,368 @@ export default {
                     .attr("width", this.svgWidth)
                     .attr("height", this.svgHeight);
                 if (this.processedTreeData) {
-                    this.setupMindmap(); // Re-render mindmap to adjust layout for new size
+                    this.setupMindmap();
                 }
             }
         },
+
+        // Tính toán kích thước động cho mindmap
+        calculateDynamicSpacing() {
+            if (!this.processedTreeData) return;
+
+            // Đếm số node và tính toán độ sâu của cây
+            let nodeCount = 0;
+            let maxDepth = 0;
+            let maxChildrenAtLevel = 0;
+            const levelCounts = {};
+
+            this.processedTreeData.each(d => {
+                nodeCount++;
+                maxDepth = Math.max(maxDepth, d.depth);
+                
+                if (!levelCounts[d.depth]) {
+                    levelCounts[d.depth] = 0;
+                }
+                levelCounts[d.depth]++;
+                maxChildrenAtLevel = Math.max(maxChildrenAtLevel, levelCounts[d.depth]);
+            });
+
+            // Tính toán khoảng cách dựa trên kích thước container và số lượng node
+            const containerAspectRatio = this.svgWidth / this.svgHeight;
+            const targetAspectRatio = 1.6; // Tỷ lệ hình chữ nhật lý tưởng
+
+            // Điều chỉnh khoảng cách ngang
+            const baseHorizontalSeparation = 200;
+            const maxHorizontalSeparation = 500;
+            const minHorizontalSeparation = 150;
+
+            // Tính toán dựa trên chiều rộng container và số level
+            let horizontalFactor = this.svgWidth / (maxDepth * baseHorizontalSeparation);
+            horizontalFactor = Math.max(0.5, Math.min(2, horizontalFactor));
+            
+            this.calculatedHorizontalSeparation = Math.max(
+                minHorizontalSeparation,
+                Math.min(maxHorizontalSeparation, baseHorizontalSeparation * horizontalFactor)
+            );
+
+            // Điều chỉnh khoảng cách dọc
+            const baseVerticalSeparation = 80;
+            const maxVerticalSeparation = 200;
+            const minVerticalSeparation = 60;
+
+            // Tính toán dựa trên chiều cao container và số node trên mỗi level
+            let verticalFactor = this.svgHeight / (maxChildrenAtLevel * baseVerticalSeparation);
+            verticalFactor = Math.max(0.6, Math.min(2.5, verticalFactor));
+
+            this.calculatedVerticalSeparation = Math.max(
+                minVerticalSeparation,
+                Math.min(maxVerticalSeparation, baseVerticalSeparation * verticalFactor)
+            );
+
+            // Điều chỉnh để đạt được tỷ lệ hình chữ nhật mong muốn
+            if (containerAspectRatio > targetAspectRatio) {
+                // Container rộng hơn mong muốn -> tăng khoảng cách ngang
+                this.calculatedHorizontalSeparation *= 1.2;
+            } else if (containerAspectRatio < targetAspectRatio) {
+                // Container cao hơn mong muốn -> tăng khoảng cách dọc
+                this.calculatedVerticalSeparation *= 1.2;
+            }
+
+            console.log(`Dynamic spacing calculated: H=${this.calculatedHorizontalSeparation.toFixed(0)}, V=${this.calculatedVerticalSeparation.toFixed(0)}`);
+        },
+
         setupMindmap() {
-    if (this.svg) {
-        this.svg.selectAll("*").remove();
-    } else {
-        this.svg = d3.select(this.$refs.mindmapSvg);
-    }
+            if (this.svg) {
+                this.svg.selectAll("*").remove();
+            } else {
+                this.svg = d3.select(this.$refs.mindmapSvg);
+            }
 
-    this.g = this.svg.append('g');
+            this.g = this.svg.append('g');
 
-    this.zoomBehavior = d3.zoom()
-        .scaleExtent([0.1, 4]) // Mở rộng giới hạn zoom
-        .on("zoom", event => {
-            this.transform = event.transform;
-            this.g.attr("transform", this.transform);
-        });
-    this.svg.call(this.zoomBehavior);
+            this.zoomBehavior = d3.zoom()
+                .scaleExtent([0.1, 4])
+                .on("zoom", event => {
+                    this.transform = event.transform;
+                    this.g.attr("transform", this.transform);
+                });
+            this.svg.call(this.zoomBehavior);
 
-    // --- Bước 1: Tiền xử lý text để tính toán kích thước node ---
-    // Tạo một SVG tạm thời ẩn để đo kích thước text
-    const tempSvg = d3.select("body").append("svg").style("position", "absolute").style("left", "-9999px");
-    const tempText = tempSvg.append("text")
-        .attr("class", "node-text")
-        .style("font-weight", "bold") // In đậm chữ khi đo
-        .style("font-family", "K2D, sans-serif"); // Áp dụng font K2D khi đo
+            // Tính toán khoảng cách động trước khi xử lý text
+            this.calculateDynamicSpacing();
 
-    this.processedTreeData.each(d => {
-        // Xác định kích thước font dựa trên loại node
-        const fontSize = d.data.type === 'root_node' ? 20 : 18;
-        tempText.style("font-size", `${fontSize}px`); // Áp dụng kích thước font khi đo
+            // Tiền xử lý text để tính toán kích thước node
+            const tempSvg = d3.select("body").append("svg").style("position", "absolute").style("left", "-9999px");
+            const tempText = tempSvg.append("text")
+                .attr("class", "node-text")
+                .style("font-weight", "bold")
+                .style("font-family", "K2D, sans-serif");
 
-        const keyword = d.data.keyword || '';
-        const words = keyword.split(/\s+/);
-        let currentLine = '';
-        let lineCount = 0;
-        let maxWidth = 0;
-        const wrappedLines = [];
+            this.processedTreeData.each(d => {
+                const fontSize = d.data.type === 'root_node' ? 20 : 18;
+                tempText.style("font-size", `${fontSize}px`);
 
-        for (let i = 0; i < words.length; i++) {
-            const testLine = currentLine + (words[i] ? (i > 0 ? " " : "") + words[i] : "");
-            tempText.text(testLine);
-            const currentTextWidth = tempText.node().getComputedTextLength();
+                const keyword = d.data.keyword || '';
+                const words = keyword.split(/\s+/);
+                let currentLine = '';
+                let lineCount = 0;
+                let maxWidth = 0;
+                const wrappedLines = [];
 
-            if (currentTextWidth > this.maxNodeWidth && currentLine !== '') {
+                for (let i = 0; i < words.length; i++) {
+                    const testLine = currentLine + (words[i] ? (i > 0 ? " " : "") + words[i] : "");
+                    tempText.text(testLine);
+                    const currentTextWidth = tempText.node().getComputedTextLength();
+
+                    if (currentTextWidth > this.maxNodeWidth && currentLine !== '') {
+                        wrappedLines.push(currentLine);
+                        lineCount++;
+                        maxWidth = Math.max(maxWidth, tempText.text(currentLine).node().getComputedTextLength());
+                        currentLine = words[i];
+                    } else {
+                        currentLine = testLine;
+                    }
+                }
+
                 wrappedLines.push(currentLine);
                 lineCount++;
                 maxWidth = Math.max(maxWidth, tempText.text(currentLine).node().getComputedTextLength());
-                currentLine = words[i];
-            } else {
-                currentLine = testLine;
-            }
-        }
-        wrappedLines.push(currentLine);
-        lineCount++;
-        maxWidth = Math.max(maxWidth, tempText.text(currentLine).node().getComputedTextLength()); // Đo dòng cuối cùng
 
-        d.data.wrappedKeyword = wrappedLines;
-        d.data.nodeCalculatedWidth = Math.max(this.minNodeWidth, maxWidth + this.nodePadding.horizontal * 2);
-        // Điều chỉnh nodeHeightPerLine dựa trên fontSize để tính toán chiều cao chính xác hơn
-        d.data.nodeCalculatedHeight = Math.max(this.minNodeHeight, lineCount * (fontSize * 1.2) + this.nodePadding.vertical * 2); // Ước tính chiều cao dòng dựa trên font size
-        // Lưu trữ fontSize đã dùng để render sau này
-        d.data.currentFontSize = fontSize; 
-    });
+                d.data.wrappedKeyword = wrappedLines;
+                d.data.nodeCalculatedWidth = Math.max(this.minNodeWidth, maxWidth + this.nodePadding.horizontal * 2);
+                d.data.nodeCalculatedHeight = Math.max(this.minNodeHeight, lineCount * (fontSize * 1.2) + this.nodePadding.vertical * 2);
+                d.data.currentFontSize = fontSize;
+            });
 
-    tempSvg.remove(); // Xóa SVG tạm thời
+            tempSvg.remove();
 
-    // --- Bước 2: Thiết lập Tree Layout ---
-    const treeLayout = d3.tree()
-        .nodeSize([this.verticalNodeSeparation, this.horizontalNodeSeparation]) // [height, width] cho mỗi node
-        // Sử dụng separation để tùy chỉnh khoảng cách chi tiết hơn
-        .separation((a, b) => {
-            // Khoảng cách ngang: đảm bảo đủ chỗ cho cả hai node + padding
-            const nodeWidthA = a.data.nodeCalculatedWidth || this.minNodeWidth;
-            const nodeWidthB = b.data.nodeCalculatedWidth || this.minNodeWidth;
+            // Thiết lập Tree Layout với khoảng cách động
+            const treeLayout = d3.tree()
+                .nodeSize([this.calculatedVerticalSeparation, this.calculatedHorizontalSeparation])
+                .separation((a, b) => {
+                    // Tính toán separation động dựa trên kích thước node thực tế
+                    const nodeWidthA = a.data.nodeCalculatedWidth || this.minNodeWidth;
+                    const nodeWidthB = b.data.nodeCalculatedWidth || this.minNodeWidth;
+                    const nodeHeightA = a.data.nodeCalculatedHeight || this.minNodeHeight;
+                    const nodeHeightB = b.data.nodeCalculatedHeight || this.minNodeHeight;
 
-            // Khoảng cách dọc: đảm bảo đủ chỗ cho cả hai node + padding
-            const nodeHeightA = a.data.nodeCalculatedHeight || this.minNodeHeight;
-            const nodeHeightB = b.data.nodeCalculatedHeight || this.minNodeHeight;
+                    // Tính toán hệ số separation dựa trên kích thước container
+                    const baseSeparation = a.parent === b.parent ? 1.2 : 2.5;
+                    const sizeFactor = Math.max(nodeWidthA, nodeWidthB) / this.minNodeWidth;
+                    const containerFactor = Math.min(this.svgWidth, this.svgHeight) / 600; // Base size 600px
 
-            if (a.parent === b.parent) {
-                return 1.5;
-            } else {
-                return 3; // Giá trị lớn hơn sẽ đẩy chúng xa hơn theo chiều ngang
-            }
-        });
+                    return baseSeparation * sizeFactor * Math.max(0.7, containerFactor);
+                });
 
-    // Chạy layout để tính toán vị trí cuối cùng của các node
-    const root = treeLayout(this.processedTreeData);
+            const root = treeLayout(this.processedTreeData);
 
-    // --- Bước 3: Render các đường nối ---
-    this.g.selectAll('.link')
-        .data(root.links())
-        .enter()
-        .append('path')
-        .attr('class', 'link')
-        .attr('fill', 'none')
-        .attr('stroke', d => d.target.data.color || '#ccc')
-        .attr('stroke-width', 2)
-        .attr("d", d3.linkHorizontal()
-            .x(d => d.y)
-            .y(d => d.x)
-        );
+            // Render các đường nối
+            this.g.selectAll('.link')
+                .data(root.links())
+                .enter()
+                .append('path')
+                .attr('class', 'link')
+                .attr('fill', 'none')
+                .attr('stroke', d => d.target.data.color || '#ccc')
+                .attr('stroke-width', 2)
+                .attr("d", d3.linkHorizontal()
+                    .x(d => d.y)
+                    .y(d => d.x)
+                );
 
-    // --- Bước 4: Render các nút ---
-    const nodeEnter = this.g.selectAll('.node')
-        .data(root.descendants())
-        .enter()
-        .append('g')
-        .attr('class', d => `node node-${d.data.type}`)
-        .attr('transform', d => `translate(${d.y}, ${d.x})`);
+            // Render các nút
+            const nodeEnter = this.g.selectAll('.node')
+                .data(root.descendants())
+                .enter()
+                .append('g')
+                .attr('class', d => `node node-${d.data.type}`)
+                .attr('transform', d => `translate(${d.y}, ${d.x})`);
 
-    // Thêm hình chữ nhật
-    nodeEnter.append('rect')
-        .attr('class', 'node-rect')
-        .attr('rx', 8) // bo góc
-        .attr('ry', 8) // bo góc
-        .attr('width', d => d.data.nodeCalculatedWidth)
-        .attr('height', d => d.data.nodeCalculatedHeight)
-        .attr('x', d => -d.data.nodeCalculatedWidth / 2) // Căn giữa
-        .attr('y', d => -d.data.nodeCalculatedHeight / 2) // Căn giữa
-        .attr('fill', d => d.data.color || "#fff")
-        .attr('stroke', '#999')
-        .attr('stroke-width', 2);
+            // Thêm hình chữ nhật
+            nodeEnter.append('rect')
+                .attr('class', 'node-rect')
+                .attr('rx', 8)
+                .attr('ry', 8)
+                .attr('width', d => d.data.nodeCalculatedWidth)
+                .attr('height', d => d.data.nodeCalculatedHeight)
+                .attr('x', d => -d.data.nodeCalculatedWidth / 2)
+                .attr('y', d => -d.data.nodeCalculatedHeight / 2)
+                .attr('fill', d => d.data.color || "#fff")
+                .attr('stroke', '#999')
+                .attr('stroke-width', 2);
 
-    // Thêm text đã xuống dòng
-    nodeEnter.selectAll('.node-text')
-    .data(d => d.data.wrappedKeyword.map((line, i) => ({ line: line, parent: d, index: i })))
-    .enter()
-    .append('text')
-    .attr('class', 'node-text')
-    .attr('x', 0) // Căn giữa theo chiều ngang
-    .attr('y', (d) => {
-        const totalLines = d.parent.data.wrappedKeyword.length;
-        const lineHeight = d.parent.data.currentFontSize * 1.2; 
-        const startY = -(totalLines - 1) * (lineHeight / 2);
-        return startY + d.index * lineHeight + (d.parent.data.currentFontSize / 4); 
-    })
-    .attr('text-anchor', 'middle') // Căn giữa text
-    // Thay đổi ở đây: Xác định màu chữ dựa trên màu nền của node
-    .style('fill', d => {
-        const nodeColor = d.parent.data.color || "#fff"; // Lấy màu nền của node
-        if (d.parent.data.type === 'root_node') {
-             // Node gốc luôn là màu trắng (như bạn đã định nghĩa trước đó)
-             return 'white';
-        } else {
-             // Các node khác: kiểm tra độ sáng của màu nền
-             return this.isLightColor(nodeColor) ? '#333' : 'white'; // #333 là màu đen đậm hơn một chút
-        }
-    })
-    .style('font-size', d => `${d.parent.data.currentFontSize}px`) // Áp dụng kích thước font đã lưu
-    .style('font-weight', 'bold') // In đậm chữ khi render
-    .style('font-family', 'K2D, sans-serif') // Áp dụng font K2D khi render
-    .text(d => d.line);
+            // Thêm text đã xuống dòng
+            nodeEnter.selectAll('.node-text')
+                .data(d => d.data.wrappedKeyword.map((line, i) => ({ line: line, parent: d, index: i })))
+                .enter()
+                .append('text')
+                .attr('class', 'node-text')
+                .attr('x', 0)
+                .attr('y', (d) => {
+                    const totalLines = d.parent.data.wrappedKeyword.length;
+                    const lineHeight = d.parent.data.currentFontSize * 1.2;
+                    const startY = -(totalLines - 1) * (lineHeight / 2);
+                    return startY + d.index * lineHeight + (d.parent.data.currentFontSize / 4);
+                })
+                .attr('text-anchor', 'middle')
+                .style('fill', d => {
+                    const nodeColor = d.parent.data.color || "#fff";
+                    if (d.parent.data.type === 'root_node') {
+                        return 'white';
+                    } else {
+                        return this.isLightColor(nodeColor) ? '#333' : 'white';
+                    }
+                })
+                .style('font-size', d => `${d.parent.data.currentFontSize}px`)
+                .style('font-weight', 'bold')
+                .style('font-family', 'K2D, sans-serif')
+                .text(d => d.line);
 
+            // Xử lý sự kiện hover
+            nodeEnter.on('mouseover', (event, d) => {
+                if (d.data.summarized_paragraph) {
+                    this.tooltip.content = d.data.summarized_paragraph;
+                    this.tooltip.visible = true;
 
-    // Xử lý sự kiện hover
-    nodeEnter.on('mouseover', (event, d) => {
-        if (d.data.summarized_paragraph) {
-            this.tooltip.content = d.data.summarized_paragraph;
-            this.tooltip.visible = true;
+                    const nodeBBox = event.currentTarget.getBoundingClientRect();
+                    let tooltipX = nodeBBox.left + nodeBBox.width / 2;
+                    let tooltipY = nodeBBox.top;
 
-            const nodeBBox = event.currentTarget.getBoundingClientRect();
-            const containerBBox = this.$refs.mindmapArea.getBoundingClientRect();
+                    const tooltipWidth = 400;
+                    const tooltipHeight = 100;
 
-            let tooltipX = nodeBBox.left + nodeBBox.width / 2;
-            let tooltipY = nodeBBox.top;
+                    if (tooltipX + tooltipWidth / 2 > window.innerWidth) {
+                        tooltipX = window.innerWidth - tooltipWidth / 2 - 10;
+                    }
+                    if (tooltipX - tooltipWidth / 2 < 0) {
+                        tooltipX = tooltipWidth / 2 + 10;
+                    }
 
-            const tooltipWidth = 400; 
-            const tooltipHeight = 100; 
+                    if (tooltipY - tooltipHeight < 0) {
+                        tooltipY = nodeBBox.bottom + 10;
+                    }
 
-            if (tooltipX + tooltipWidth / 2 > window.innerWidth) {
-                tooltipX = window.innerWidth - tooltipWidth / 2 - 10;
-            }
-            if (tooltipX - tooltipWidth / 2 < 0) {
-                tooltipX = tooltipWidth / 2 + 10;
-            }
+                    this.tooltip.x = tooltipX;
+                    this.tooltip.y = tooltipY;
+                }
+            })
+            .on('mouseout', () => {
+                this.tooltip.visible = false;
+            });
 
-            if (tooltipY - tooltipHeight < 0) {
-                tooltipY = nodeBBox.bottom + 10; 
-            }
-
-            this.tooltip.x = tooltipX;
-            this.tooltip.y = tooltipY;
-        }
-    })
-        .on('mouseout', () => {
-            this.tooltip.visible = false;
-        });
-
-    // Tự động căn giữa mindmap khi load lần đầu
-    this.centerMindmap();
+            // Tự động căn giữa mindmap với tỷ lệ phù hợp
+            this.centerMindmapWithOptimalView();
         },
+
         isLightColor(hexColor) {
-        // Chuyển đổi màu hex sang RGB
-        let r = 0, g = 0, b = 0;
-        if (hexColor.length === 4) { // #RGB
-            r = parseInt(hexColor[1] + hexColor[1], 16);
-            g = parseInt(hexColor[2] + hexColor[2], 16);
-            b = parseInt(hexColor[3] + hexColor[3], 16);
-        } else if (hexColor.length === 7) { // #RRGGBB
-            r = parseInt(hexColor.substring(1, 3), 16);
-            g = parseInt(hexColor.substring(3, 5), 16);
-            b = parseInt(hexColor.substring(5, 7), 16);
-        }
-        // Tính toán độ sáng tương đối (Luminance)
-        // Công thức W3C cho độ sáng tương đối: L = 0.2126 * R + 0.7152 * G + 0.0722 * B
-        const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-        // Ngưỡng độ sáng: thường là 0.5. Nếu lớn hơn 0.5 là màu sáng, ngược lại là tối.
-        return luminance > 0.5;
-    },
+            let r = 0, g = 0, b = 0;
+            if (hexColor.length === 4) {
+                r = parseInt(hexColor[1] + hexColor[1], 16);
+                g = parseInt(hexColor[2] + hexColor[2], 16);
+                b = parseInt(hexColor[3] + hexColor[3], 16);
+            } else if (hexColor.length === 7) {
+                r = parseInt(hexColor.substring(1, 3), 16);
+                g = parseInt(hexColor.substring(3, 5), 16);
+                b = parseInt(hexColor.substring(5, 7), 16);
+            }
+            const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+            return luminance > 0.5;
+        },
+
         cleanupMindmap() {
             if (this.svg) {
                 this.svg.selectAll("*").remove();
             }
             this.tooltip.visible = false;
         },
+
         zoomIn() {
             const newScale = this.transform.k * 1.2;
             this.svg.transition().duration(200).call(this.zoomBehavior.scaleTo, newScale);
         },
+
         zoomOut() {
             const newScale = this.transform.k / 1.2;
             this.svg.transition().duration(200).call(this.zoomBehavior.scaleTo, newScale);
         },
+
         resetZoom() {
-            this.centerMindmap();
+            this.centerMindmapWithOptimalView();
         },
-        centerMindmap() {
-            // Sử dụng prop 'data' thay vì 'rawData'
+
+        centerMindmapWithOptimalView() {
             if (this.data.length === 0 || !this.processedTreeData || !this.svg || !this.g) {
                 return;
             }
 
-            // Tạo một tree layout tạm thời để tính toán kích thước bao quanh
-            // Sử dụng cùng cấu hình separation để tính toán bounding box chính xác
+            // Tạo tree layout tạm thời với khoảng cách động
             const tempTreeLayout = d3.tree()
-                .nodeSize([this.verticalNodeSeparation, this.horizontalNodeSeparation])
+                .nodeSize([this.calculatedVerticalSeparation, this.calculatedHorizontalSeparation])
                 .separation((a, b) => {
-                    if (a.parent === b.parent) {
-                        return 1.5;
-                    } else {
-                        return 3;
-                    }
+                    const nodeWidthA = a.data.nodeCalculatedWidth || this.minNodeWidth;
+                    const nodeWidthB = b.data.nodeCalculatedWidth || this.minNodeWidth;
+                    const baseSeparation = a.parent === b.parent ? 1.2 : 2.5;
+                    const sizeFactor = Math.max(nodeWidthA, nodeWidthB) / this.minNodeWidth;
+                    const containerFactor = Math.min(this.svgWidth, this.svgHeight) / 600;
+                    return baseSeparation * sizeFactor * Math.max(0.7, containerFactor);
                 });
 
             const root = tempTreeLayout(this.processedTreeData);
 
+            // Chỉ focus vào node gốc và các node con cấp 1 và 2
+            const focusNodes = [];
+            root.descendants().forEach(d => {
+                if (d.depth <= 2) { // Node gốc (depth 0), cấp 1, và cấp 2
+                    focusNodes.push(d);
+                }
+            });
+
+            if (focusNodes.length === 0) {
+                focusNodes.push(root); // Fallback nếu không có node nào
+            }
+
+            // Tính toán bounding box chỉ cho các node focus
             let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
 
-            root.descendants().forEach(d => {
+            focusNodes.forEach(d => {
                 const nodeWidth = d.data.nodeCalculatedWidth;
                 const nodeHeight = d.data.nodeCalculatedHeight;
                 const halfWidth = nodeWidth / 2;
                 const halfHeight = nodeHeight / 2;
 
-                // Cập nhật min/max dựa trên kích thước thực của node
                 minX = Math.min(minX, d.y - halfWidth);
                 maxX = Math.max(maxX, d.y + halfWidth);
                 minY = Math.min(minY, d.x - halfHeight);
                 maxY = Math.max(maxY, d.x + halfHeight);
             });
 
-            const graphWidth = maxX - minX;
-            const graphHeight = maxY - minY;
+            const focusWidth = maxX - minX;
+            const focusHeight = maxY - minY;
 
-            // Tính toán scale để vừa với màn hình, không phóng to quá 100% nếu mindmap nhỏ
-            const scale = Math.min(this.svgWidth / graphWidth * 0.9, this.svgHeight / graphHeight * 0.9, 1); // Thêm 0.9 để có khoảng trống
+            // Tính toán scale để hiển thị rõ ràng khu vực focus
+            const padding = 0.2; // 20% padding để tạo không gian thoải mái
+            const minScale = 0.8; // Scale tối thiểu để đảm bảo text đọc được
+            const maxScale = 2.0; // Scale tối đa để không phóng to quá
+            
+            const scaleX = (this.svgWidth * (1 - padding)) / focusWidth;
+            const scaleY = (this.svgHeight * (1 - padding)) / focusHeight;
+            let scale = Math.min(scaleX, scaleY);
+            
+            // Giới hạn scale trong khoảng hợp lý
+            scale = Math.max(minScale, Math.min(maxScale, scale));
 
-            const translateX = this.svgWidth / 2 - (minX + maxX) / 2 * scale;
-            const translateY = this.svgHeight / 2 - (minY + maxY) / 2 * scale;
+            // Căn giữa khu vực focus
+            const focusCenterX = (minX + maxX) / 2;
+            const focusCenterY = (minY + maxY) / 2;
+            
+            const translateX = this.svgWidth / 2 - focusCenterX * scale;
+            const translateY = this.svgHeight / 2 - focusCenterY * scale;
 
             const newTransform = d3.zoomIdentity.translate(translateX, translateY).scale(scale);
 
             this.svg.transition().duration(750).call(this.zoomBehavior.transform, newTransform);
+            
+            console.log(`Focus view: ${focusNodes.length} nodes, scale: ${scale.toFixed(2)}`);
         }
     }
 };
@@ -506,14 +589,12 @@ export default {
     box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 
-/* SVG chiếm toàn bộ không gian */
 svg {
     display: block;
     width: 100%;
     height: 100%;
 }
 
-/* Kiểu cho các đường nối */
 .link {
     stroke-linecap: round;
     transition: stroke-width 0.2s ease;
@@ -523,13 +604,11 @@ svg {
     stroke-width: 3;
 }
 
-/* Kiểu cho nhóm node */
 .node {
     cursor: pointer;
     transition: all 0.2s ease;
 }
 
-/* Kiểu cho hình chữ nhật của node */
 .node-rect {
     transition: all 0.2s ease;
 }
@@ -539,7 +618,6 @@ svg {
     stroke-width: 3;
 }
 
-/* Kiểu cho text của node */
 .node-text {
     font-size: 15px;
     font-weight: 700;
@@ -549,7 +627,6 @@ svg {
     text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
 }
 
-/* Màu chữ cho root node */
 .node-root_node .node-rect {
     stroke: #2c3e50;
     stroke-width: 3;
@@ -562,7 +639,6 @@ svg {
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
 
-/* Tooltip style */
 .mindmap-tooltip {
     position: fixed;
     background: linear-gradient(135deg, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.8));

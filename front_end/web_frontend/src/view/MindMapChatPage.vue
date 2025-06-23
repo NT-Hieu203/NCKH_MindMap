@@ -338,6 +338,8 @@
   }
   
   .message-bubble.user {
+    max-width: 80%;
+    width: fit-content;
     background-color: #e0f2fe;
     color: #333;
     align-self: flex-end;

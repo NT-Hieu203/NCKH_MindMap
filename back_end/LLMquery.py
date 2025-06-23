@@ -120,7 +120,7 @@ def find_relation(onto):
     return result
 
 
-"""**PP1: lấy toàn bộ anotation làm chú thích và để LLM tìm trên chú thích (nếu có)**"""
+"""**PP1: lấy quan hệ và tên entity cho LLM dựa trên câu hỏi để tìm thực thể liên quan**"""
 
 def create_explication(entities_with_annotation_sumarry : dict):
   explication = {}
@@ -133,42 +133,39 @@ def create_explication(entities_with_annotation_sumarry : dict):
 
 import json
 
-def find_entities_from_question_PP1(client, relation, explication, question, chat_history):
+def find_entities_from_question_PP1(client, relation, question, chat_history):
     messages = [
         {
             "role": "system",
             "content": """Bạn là một agent hữu ích được thiết kế để tìm tên thực thể liên quan đến câu hỏi.
 
-            Dựa trên TÊN THỰC THỂ, CÁC QUAN HỆ TƯƠNG ỨNG và THÔNG TIN CHÚ THÍCH, hãy xác định xem câu hỏi của người dùng có thể được trả lời bằng các thực thể đã liệt kê hay không.
+            Dựa trên TÊN THỰC THỂ, CÁC QUAN HỆ TƯƠNG ỨNG, hãy xác định xem câu hỏi của người dùng có thể được trả lời bằng các thực thể đã liệt kê hay không.
 
             - Trích xuất các thực thể được nhắc đến trực tiếp trong câu hỏi hoặc
             - Tìm ra những thực thể phù hợp có khả năng trả lời cho câu hỏi, ngay cả khi người dùng không nhắc đến tên thực thể rõ ràng.
             - Ưu tiên các thực thể có mối liên hệ ngữ nghĩa hoặc quan hệ tri thức gần với nội dung câu hỏi.
-            - Nếu thông tin chú thích trùng thì trả về tên thực thể cấp thấp nhất.
+            - Nên chọn các thực thể cấp cao hơn nếu có.
             Kết quả:
             Trả về kết quả là các class dưới dạng JSON như sau:
             {
-                "(parent_class)": [danh sách thực thể]
+                "Tên thực thể": [danh sách thực thể]
             }
-
-
             Ví dụ:
             Câu hỏi: "Hiệp ước Pháp - Hoa ký ngày 28-2-1946 có nội dung gì và tình hình sau đó đã đặt Việt Nam Dân chủ Cộng hòa trước lựa chọn nào?"
             Đáp án:
             {
-                "Hiệp_định_sơ_bộ_1946_1": ["Hiệp_ước_Pháp_-_Hoa"]
+                "Tên thực thể": ["Hiệp_ước_Pháp_-_Hoa"]
             }
 
             Câu hỏi: "Sau Cách mạng tháng Tám, chính phủ Việt Nam Dân chủ Cộng hòa đã thực hiện những biện pháp gì để khôi phục kinh tế và giải quyết nạn đói?"
             Đáp án:
             {
-                "Khôi_phục_kinh_tế_11": ["Khôi_phục_kinh_tế_111"]
+                "Tên thực thể": ["Khôi_phục_kinh_tế_111"]
             }
             Câu hỏi: "Chính phủ Việt Nam Dân chủ Cộng hòa đã có những biện pháp gì để đối phó với khó khăn về chính trị, kinh tế và ngoại giao trong năm 1945–1946"
             Đáp án:
             {
-                "Khôi_phục_kinh_tế_11": ["Khôi_phục_kinh_tế_111"],
-                "Hiệp_định_sơ_bộ_1946_1": ["Tiếp_xúc_Việt-Pháp_1945", "Hiệp_ước_Pháp_-_Hoa"]
+                "Tên thực thể": ["Khôi_phục_kinh_tế____","Tiếp_xúc_Việt-Pháp_1945", "Hiệp_ước_Pháp_-_Hoa"]
             }
             Nếu câu hỏi không có thông tin liên quan, trả về:
             {
@@ -179,10 +176,6 @@ def find_entities_from_question_PP1(client, relation, explication, question, cha
         {
             "role": "user",
             "content": f"CÁC THỰC THỂ VÀ CÁC QUAN HỆ TƯƠNG ỨNG:\n{json.dumps(relation, indent=4, ensure_ascii=False)}"
-        },
-        {
-            "role": "user",
-            "content": f"TÊN THỰC THỂ VÀ THÔNG TIN CHÚ THÍCH:\n{json.dumps(explication, indent=4, ensure_ascii=False)}"
         },
         {
             "role": "user",
@@ -333,7 +326,7 @@ def get_class_summary_annotation(ontology: Ontology, class_object) -> str | None
         return annotation_value[0]
     return None
 
-def find_question_info(onto, json_data):
+def find_question_info(onto, model_embedding, question, json_data):
     """
     Tổng quát hóa hàm tạo query từ ontology dựa trên json_data.
 
@@ -346,31 +339,45 @@ def find_question_info(onto, json_data):
         list: Tất cả thông tin truy vấn được
     """
     question_info = []
+    key = list(json_data.keys())[0]
+    values = json_data[key]
+    # for key, values in json_data.items():
+    if key == "Trong":
+        return []  # Bỏ qua nếu key là 'Trong'
 
-    for key, values in json_data.items():
-        has_class_parent = False
-        set_class_parent = set()
-        if key == "Trong":
-            continue  # Bỏ qua nếu key là 'Trong'
+    for value in values:
+        # Lấy thực thể từ ontology
+        entity = onto.search_one(iri="*" + value)
+        print("sau hàm search: ", entity)
+        if entity is None:
+            print(f"[!] Không tìm thấy '{value}' trong ontology.")
+            continue
 
-        for value in values:
-            # Lấy thực thể từ ontology
-            entity = onto.search_one(iri="*" + value)
-            print("sau hàm search: ", entity)
-            if entity is None:
-                print(f"[!] Không tìm thấy '{value}' trong ontology.")
-                continue
+        # Nếu là class, xử lý bình thường
+        if isinstance(entity, ThingClass):
+            information = get_class_summary_annotation(onto, entity)
+            if information is not None:
+                question_info.append(information)
 
-            # Nếu là class, xử lý bình thường
-            if isinstance(entity, ThingClass):
-                information = get_class_summary_annotation(onto, entity)
-                if information is not None:
-                    question_info.append(information)
-                children = onto.get_children_of(entity)
-                for child in children:
-                    child_information = get_class_summary_annotation(onto, child)
-                    if child_information is not None:
-                        question_info.append(child_information)
+            children = onto.get_children_of(entity)
+            for child in children:
+                child_information = get_class_summary_annotation(onto, child)
+                if child_information is not None:
+                    question_info.append(child_information)
+
+            string_names = [str(child_name).split('.')[-1] for child_name in children]
+            string_names = [ name.replace('_',' ') for name in string_names]
+            sorted_children = find_similar_info_from_raw_informations(model_embedding, question, string_names, k = 5)
+            print("sorted_children: ", sorted_children)
+            for name_child in sorted_children:
+                name = name_child.replace(' ','_')
+                child = onto.search_one(iri="*" + name)
+                print("child tìm đươc: ",child)
+                if child is None:
+                    continue
+                child_information = get_class_summary_annotation(onto, child)
+                if child_information is not None:
+                    question_info.append(child_information)
     return question_info
 def generate_response(client ,question_info, question, history ):
   system_prompt  = f'''

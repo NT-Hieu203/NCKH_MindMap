@@ -108,6 +108,7 @@ class ParagraphClusterer:
         Đây là một phương thức tĩnh vì nó không cần truy cập thuộc tính của đối tượng (self).
         """
         if not paragraph_indices_in_cluster:
+            print("Danh sách đoạn văn trong cụm rỗng. Không thể tìm đoạn văn đại diện.")
             return "Không có đoạn văn trong cụm này."
 
         cluster_embeddings = normalized_embeddings[paragraph_indices_in_cluster]
@@ -137,6 +138,10 @@ class ParagraphClusterer:
         cluster_centers = self.kmeans_model.cluster_centers_
 
         for cluster_id in range(self.num_clusters):
+            if len(clustered_data[cluster_id]) == 0:
+                print(f"Cụm {cluster_id} rỗng. Không có đoạn văn nào trong cụm này.")
+                continue
+
             paragraph_indices_in_cluster = clustered_data[cluster_id]
             current_cluster_center_embedding = cluster_centers[cluster_id]
 

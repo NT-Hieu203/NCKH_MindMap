@@ -49,6 +49,15 @@ const MindmapService = {
     }
   },
 
+  get_available_mindmap: async () => { 
+    try {
+      const response = await api.get('/get_available_mindmap');
+      return response.data;
+    } catch (error) {
+      console.error('Lỗi khi lấy mindmap có sẵn:', error);
+      throw error;
+    }
+  },
   /**
    * Gửi tin nhắn để trò chuyện với Ontology mới được tạo từ PDF.
    * Yêu cầu một session đã có ontology mới.
