@@ -3,7 +3,8 @@
 Hệ thống sẽ giúp trực quan hóa tài liệu thành MindMap. Giúp người đọc tiếp thu kiến thức một cách trực quan. Hệ thống còn có một trợ lý để giúp người dùng trò chuyện với kiến thức lịch sử trong tài liệu của mình. Ngoài ra, nếu bạn muốn tìm hiểu kiến thức lịch sử việt nam giai đoạn 1945-2000 hệ thống cũng sẽ giúp bạn trả lời nhanh chóng.
 
 ---
-
+## Framework
+![Framework hệ thống](img/framework.png)
 ## Yêu cầu hệ thống
 
 Trước khi bắt đầu, hãy đảm bảo bạn đã cài đặt các công cụ sau:
