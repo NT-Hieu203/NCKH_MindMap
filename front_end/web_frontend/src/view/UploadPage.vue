@@ -12,13 +12,13 @@
         </button>
   
         <button @click="uploadFile" :disabled="!selectedFile || isUploading" class="upload-button">
-          <span v-if="!isUploading">Tạo Mindmap</span>
+          <span v-if="!isUploading">Tải tệp lên</span>
           <span v-else>Đang xử lý...</span>
         </button>
   
         <div v-if="isUploading" class="loading-indicator">
           <div class="spinner"></div>
-          <p>Đang tải lên và xử lý Mindmap của bạn. Quá trình này có thể mất vài phút.</p>
+          <p>Đang tải tệp lên</p>
         </div>
   
         <div v-if="uploadMessage" :class="['message', messageType]">
@@ -57,63 +57,131 @@
         uploadMessage: '',
         messageType: '', // 'success' or 'error'
         initialMindmapData: null,
+        sessionId: '',
       };
+    },
+    async created() {
+      // Lấy session và thiết lập WebSocket
+      const session = await MindmapService.getSession();
+      this.sessionId = session.session_id;
+
+      MindmapService.connect(this.sessionId, {
+        onOntologyProgress: (data) => {
+          console.log("Đang xử lý Ontology:", data);
+          this.uploadMessage = `Tiến trình: ${data.status}`;
+        },
+        onOntologyComplete: (data) => {
+          console.log("Hoàn thành xử lý:", data);
+          this.initialMindmapData = data.initial_data;
+          sessionStorage.setItem('mindmapDataForChat', JSON.stringify(this.initialMindmapData));
+
+          this.uploadMessage = 'Tạo Mindmap thành công!';
+          this.messageType = 'success';
+          this.$router.push('/chat_with_mindmap');
+        },
+        onOntologyError: (err) => {
+          console.error('Lỗi xử lý Ontology:', err);
+          this.setMessage(`Lỗi: ${err.error || 'Không xác định.'}`, 'error');
+          this.isUploading = false;
+        },
+        onNewMessage: () => {},
+        onChatError: () => {}
+      });
     },
     methods: {
       selectFile() {
         this.$refs.pdfInput.click();
+      },
+      setMessage(message, type) {
+        this.uploadMessage = message;
+        this.messageType = type;
+      },
+      resetMessage() {
+        this.uploadMessage = '';
+        this.messageType = '';
       },
       handleFileChange(event) {
         this.selectedFile = event.target.files[0];
         this.uploadMessage = ''; // Xóa các tin nhắn cũ
         this.initialMindmapData = null; // Xóa dữ liệu mindmap cũ
       },
+
+      // async uploadFile() {
+      //   if (!this.selectedFile) {
+      //     this.uploadMessage = 'Vui lòng chọn một file PDF trước.';
+      //     this.messageType = 'error';
+      //     return;
+      //   }
+  
+      //   this.isUploading = true;
+      //   this.uploadMessage = '';
+      //   this.messageType = '';
+  
+      //   try {
+      //     const responseData = await MindmapService.uploadPdf(this.selectedFile);
+  
+      //     if (responseData && responseData.initial_data) {
+      //       this.initialMindmapData = responseData.initial_data;
+      //       // Lưu initialMindmapData vào sessionStorage để MindMapChatPage có thể truy cập
+      //       sessionStorage.setItem('mindmapDataForChat', JSON.stringify(this.initialMindmapData));
+  
+      //       this.uploadMessage = 'Upload và tạo Mindmap thành công!';
+      //       this.messageType = 'success';
+      //       this.$router.push('/chat_with_mindmap');
+      //       console.log("Mindmap Data:", this.initialMindmapData);
+      //       console.log("Session ID (managed by cookie):", responseData.session_id);
+      //     } else {
+      //       this.uploadMessage = 'Upload thành công nhưng không nhận được dữ liệu Mindmap.';
+      //       this.messageType = 'error';
+      //     }
+      //   } catch (error) {
+      //     console.error('Lỗi khi upload file:', error);
+      //     if (error.response && error.response.data && error.response.data.error) {
+      //       this.uploadMessage = `Lỗi: ${error.response.data.error}`;
+      //     } else {
+      //       this.uploadMessage = 'Đã xảy ra lỗi khi upload hoặc xử lý file PDF.';
+      //     }
+      //     this.messageType = 'error';
+      //   } finally {
+      //     this.isUploading = false;
+      //   }
+      // },
       async uploadFile() {
         if (!this.selectedFile) {
-          this.uploadMessage = 'Vui lòng chọn một file PDF trước.';
-          this.messageType = 'error';
+          this.setMessage('Vui lòng chọn một file PDF trước.', 'error');
           return;
         }
-  
+
         this.isUploading = true;
-        this.uploadMessage = '';
-        this.messageType = '';
-  
+        this.resetMessage();
+
         try {
-          const responseData = await MindmapService.uploadPdf(this.selectedFile);
-  
-          if (responseData && responseData.initial_data) {
-            this.initialMindmapData = responseData.initial_data;
-            // Lưu initialMindmapData vào sessionStorage để MindMapChatPage có thể truy cập
-            sessionStorage.setItem('mindmapDataForChat', JSON.stringify(this.initialMindmapData));
-  
-            this.uploadMessage = 'Upload và tạo Mindmap thành công!';
-            this.messageType = 'success';
-            this.$router.push('/chat_with_mindmap');
-            console.log("Mindmap Data:", this.initialMindmapData);
-            console.log("Session ID (managed by cookie):", responseData.session_id);
+          const response = await MindmapService.uploadPdf(this.selectedFile, this.sessionId);
+
+          if (response?.message) {
+             this.setMessage(response.message, 'info');
+            // Không chuyển trang ở đây, chờ sự kiện `onOntologyComplete`
           } else {
-            this.uploadMessage = 'Upload thành công nhưng không nhận được dữ liệu Mindmap.';
-            this.messageType = 'error';
+            this.setMessage(response.error, 'error');
           }
         } catch (error) {
           console.error('Lỗi khi upload file:', error);
-          if (error.response && error.response.data && error.response.data.error) {
-            this.uploadMessage = `Lỗi: ${error.response.data.error}`;
-          } else {
-            this.uploadMessage = 'Đã xảy ra lỗi khi upload hoặc xử lý file PDF.';
-          }
-          this.messageType = 'error';
+          const errMsg = error.response?.data?.error || 'Không thể upload file.';
+          this.setMessage(`Lỗi: ${errMsg}`, 'error');
         } finally {
           this.isUploading = false;
         }
       },
+
       goToMindMapChat() {
         this.$router.push('/chat_with_mindmap');
       },
       goToHome() {
         this.$router.push('/');
-      }
+      },
+      beforeUnmount() {
+        MindmapService.disconnect();
+      } 
     }
   };
   </script>

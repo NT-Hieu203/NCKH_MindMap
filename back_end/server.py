@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, session
+from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask_cors import CORS
 import redis
 import pickle
@@ -65,6 +66,29 @@ relation = None
 is_loaded = False
 type_ontology = None
 
+
+# Sử dụng 'eventlet' cho các tác vụ bất đồng bộ
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='eventlet')
+
+# --- CÁC TRÌNH XỬ LÝ SỰ KIỆN SOCKET.IO ---
+@socketio.on('connect')
+def handle_connect():
+    print('Client connected:', request.sid)
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print('Client disconnected:', request.sid)
+
+@socketio.on('join_room')
+def on_join(data):
+    """Client tham gia một 'phòng' dựa trên session_id của họ"""
+    session_id = data['session_id']
+    join_room(session_id)
+    print(f"Client {request.sid} đã tham gia phòng {session_id}")
+    # Khởi tạo dữ liệu nếu cần
+    if session_id not in chat_histories:
+        chat_histories[session_id] = []
+
 def load_ontologies(type, onto_path = None):
     if type == "Available":
         try:
@@ -90,7 +114,6 @@ def load_ontologies(type, onto_path = None):
                 return None, None
         except Exception as e:
             print(f"Không thể tải ontology mới '{onto_path}': {e}")
-
 # --- Model Embedding ---
 # model_embedding_name = "model/model_embedding" #lưu model embedding nếu muốn tải về sử dụng local
 model_embedding_name = 'paraphrase-multilingual-MiniLM-L12-v2'
@@ -217,86 +240,78 @@ def get_session():
             "message": "Chưa có session. Vui lòng upload PDF hoặc chat với ontology có sẵn để tạo session mới."
         })
 
-
 @app.route("/api/upload-pdf", methods=["POST"])
 def upload_pdf():
     if 'pdf_file' not in request.files:
         return jsonify({"error": "Không có tệp PDF"}), 400
 
     pdf_file = request.files['pdf_file']
-    if pdf_file.filename == '':
-        return jsonify({"error": "Chưa chọn tệp"}), 400
+    session_id = request.form.get('session_id') # Client phải gửi session_id kèm theo
 
+    if not session_id:
+        return jsonify({"error": "Thiếu session_id"}), 400
+    
     if pdf_file and allowed_file(pdf_file.filename):
-        # TẠO SESSION MỚI khi upload PDF
-        user_session_id = create_new_session()
-        initialize_user_data(user_session_id)
-
-        print(f"Tạo session mới cho upload PDF: {user_session_id}")
-
-        # Xóa các ontology cũ của session này nếu có (phòng trường hợp)
-        old_ontology_info = get_ontology_state(user_session_id)
-        if old_ontology_info:
-            old_ontology_path = old_ontology_info.get('ontology_path')
-            if old_ontology_path and os.path.exists(old_ontology_path):
-                try:
-                    os.remove(old_ontology_path)
-                    print(f"Đã xóa ontology cũ: {old_ontology_path}")
-                except Exception as e:
-                    print(f"Lỗi khi xóa ontology cũ {old_ontology_path}: {e}")
-
-        # Tạo tên file duy nhất và an toàn để lưu
         filename = secure_filename(pdf_file.filename)
         unique_filename = f"{uuid.uuid4().hex}_{filename}"
         file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
         pdf_file.save(file_path)
-        print(f"File PDF đã lưu tạm thời: {file_path}")
+        
+        # Bắt đầu tác vụ xử lý trong background để không block request
+        socketio.start_background_task(
+            target=process_and_build_ontology,
+            session_id=session_id,
+            file_path=file_path
+        )
+        
+        # Trả về ngay lập tức cho client biết là đã nhận file
+        return jsonify({
+            "message": "✅ Đã nhận tệp và đang trong quá trình phân tích, thời gian phân tích có thể mất vài phút.",
+            "session_id": session_id
+        }), 202 # 202 Accepted
+    
+    return jsonify({"error": "Tệp không hợp lệ"}), 400
 
+def process_and_build_ontology(session_id, file_path):
+    """
+    Hàm này chạy ở background, xử lý PDF và gửi cập nhật tiến trình qua WebSocket.
+    """
+    with app.app_context(): # Cần app_context để emit từ background task
         try:
-            # 1. Thực hiện process_PDF_file đồng bộ
-            print(f"Bắt đầu process_PDF_file đồng bộ cho {file_path}")
+            # Gửi cập nhật tiến trình
+            socketio.emit('ontology_progress', {'status': 'Đang xử lý file PDF...'}, room=session_id)
             clustering_tree = process_PDF_file(client, model_embedding, model_detect_layout, reader, file_path)
-            print("process_PDF_file hoàn tất.")
-
-            # 2. Xây dựng ontology ngay lập tức (tuần tự)
-            print("Bắt đầu xây dựng ontology đồng bộ.")
-            ontology_filename = f"{user_session_id}_ontology.owl"
-            ontology_iri = f"http://www.semanticweb.org/{user_session_id}_MINDMAP"
+            
+            socketio.emit('ontology_progress', {'status': 'Đang xây dựng ontology...'}, room=session_id)
+            ontology_filename = f"{session_id}_ontology.owl"
+            ontology_iri = f"http://www.semanticweb.org/{session_id}_MINDMAP"
             ontology_save_path = os.path.join(GENERATED_ONTOLOGIES_FOLDER, ontology_filename)
             create_ontology(model_embedding, clustering_tree, ontology_save_path, ontology_iri)
-            print(f"Ontology đã được xây dựng và lưu tại: {ontology_save_path}")
-
-            # Cập nhật trạng thái trong Redis
-            set_ontology_state(user_session_id, {
+            
+            # Cập nhật trạng thái hoàn thành trong Redis
+            set_ontology_state(session_id, {
                 'status': 'completed',
                 'timestamp': time.time(),
                 'ontology_path': ontology_save_path,
                 'created_from': 'pdf_upload'
             })
-
-            # Dọn dẹp file PDF tạm thời
-            if os.path.exists(file_path):
-                os.remove(file_path)
-                print(f"Đã xóa file PDF tạm thời sau khi xử lý: {file_path}")
-
-            return jsonify({
-                "message": "Tệp đã được xử lý và Ontology đã được xây dựng.",
-                "initial_data": clustering_tree,
-                "session_id": user_session_id,
-                "ontology_status": "completed",
-                "ontology_path": ontology_save_path
-            }), 200
-
+            
+            # Gửi thông báo hoàn thành
+            socketio.emit('ontology_complete', {
+                'status': 'Hoàn thành!',
+                'message': 'Ontology đã được xây dựng thành công.',
+                'initial_data': clustering_tree,
+                'session_id': session_id
+            }, room=session_id)
+            
         except Exception as e:
-            print(f"Lỗi trong quá trình xử lý PDF hoặc xây dựng ontology: {e}")
-            import traceback
-            traceback.print_exc()
-            # Dọn dẹp file PDF tạm nếu có lỗi
+            print(f"Lỗi background task: {e}")
+            socketio.emit('ontology_error', {'error': f'Lỗi xử lý file: {str(e)}'}, room=session_id)
+        finally:
+            # Dọn dẹp file PDF tạm
             if os.path.exists(file_path):
                 os.remove(file_path)
-            return jsonify({"error": f"Lỗi xử lý file PDF: {str(e)}"}), 500
 
-    return jsonify({"error": "Tệp không hợp lệ hoặc không có tệp được chọn"}), 400
 
 @app.route("/api/get_available_mindmap", methods=["GET"])
 def get_available_mindmap():
@@ -328,145 +343,67 @@ def get_available_mindmap():
         "initial_data": clustering_tree
     }), 200
 
-@app.route("/api/chat_with_available_onto", methods=["POST"])
-def chat_with_available_onto_route():
-    global relation, is_loaded, type_ontology, ontology_available
-    if type_ontology != "Available":
-        is_loaded = False
-        type_ontology = "Available"
+@socketio.on('send_message')
+def handle_send_message(data):
+    """
+    Xử lý tất cả các tin nhắn chat từ client.
+    """
+    session_id = data.get('session_id')
+    question = data.get('message')
+    chat_mode = data.get('mode') # 'available' hoặc 'new'
 
-    if is_loaded == False:
-        ontology_available, relation = load_ontologies(type_ontology)
-        is_loaded = True
-    if ontology_available is None:
-        return jsonify({"error": "Ontology mặc định chưa được tải hoặc không tồn tại."}), 500
-    if relation is None :
-        return jsonify({"error": "Dữ liệu khởi tạo cho ontology mặc định chưa sẵn sàng."}), 500
+    if not all([session_id, question, chat_mode]):
+        emit('chat_error', {'chat_error': 'Dữ liệu không hợp lệ.'})
+        return
 
-    # TẠO SESSION MỚI nếu chưa có khi chat với ontology có sẵn
-    current_user_id = get_current_session_id()
-    if not current_user_id:
-        current_user_id = create_new_session()
-        print(f"Tạo session mới cho chat với ontology có sẵn: {current_user_id}")
-
-    initialize_user_data(current_user_id)
-
-    print(f"Chat với ontology mặc định cho session: {current_user_id}")
-
-    data = request.json
-    question = data.get("message", "")
-
-    if not question:
-        return jsonify({"error": "Không có tin nhắn được cung cấp"}), 400
-    start_time = time.time()
-    try:
-        entities = find_entities_from_question_PP1(client, relation, question, chat_histories[current_user_id])
-        print('tìm được: ', entities)
-
-        find_time = time.time()
-        raw_informations_from_ontology = find_question_info(ontology_available, model_embedding, question, json.loads(entities))
-        end_find = time.time()
-        print(f"Thời gian tìm kiếm câu hỏi trong ontology: {end_find - find_time}s")
-        if len(raw_informations_from_ontology) == 0:
-            raw_informations_from_ontology.append("Không có thông tin cho câu hỏi từ ontology mặc định.")
-
-        k_similar_info = find_similar_info_from_raw_informations(model_embedding, question, raw_informations_from_ontology)
-
-        s_time = time.time()
-        bot_response = generate_response(client, k_similar_info, question, chat_histories[current_user_id])
-        e_time = time.time()
-        print(f"Thời gian chạy: {e_time - s_time}s")
+    # Thêm tin nhắn người dùng vào lịch sử
+    if session_id not in chat_histories:
+        chat_histories[session_id] = []
+    chat_histories[session_id].append({"sender": "user", "text": question})
     
-    except Exception as e:
-        print(f"Lỗi trong quá trình chat với ontology mặc định: {e}")
-        import traceback
-        traceback.print_exc()
-        bot_response = "Xin lỗi, tôi không thể trả lời câu hỏi của bạn với ontology mặc định vào lúc này."
-
-    end_time = time.time()
-    print("Thời gian thực thi (Default Ontology Chat):", end_time - start_time, "giây")
-
-    # Lưu vào lịch sử chat
-    chat_histories[current_user_id].append({"sender": "user", "text": question})
-    chat_histories[current_user_id].append({"sender": "bot", "text": bot_response})
-
-    return jsonify({
-        "response": bot_response,
-        "session_id": current_user_id
-    })
-
-
-@app.route("/api/chat_newOnto", methods=["POST"])
-def chat_with_new_ontology():
-    global is_loaded, type_ontology, relation, current_ontology
-    if type_ontology != "New":
-        type_ontology = "New"
-        is_loaded = False
-
-    # PHẢI CÓ SESSION HỢP LỆ từ việc upload PDF trước đó
-    current_user_id = get_current_session_id()
-    print(f"Kiểm tra session hiện tại: {current_user_id}")
-    if not current_user_id:
-        return jsonify({
-            "error": "Không có session hợp lệ. Vui lòng upload PDF trước khi chat với ontology mới."
-        }), 400
-
-    # Kiểm tra session có ontology mới hợp lệ không
-    is_valid, message = validate_session_for_new_ontology(current_user_id)
-    if not is_valid:
-        return jsonify({"error": message}), 400
-
-    initialize_user_data(current_user_id)
-    print(f"Chat với ontology mới cho session: {current_user_id}")
-
-    current_ontology_info = get_ontology_state(current_user_id)
-    ontology_path = current_ontology_info.get('ontology_path')
-    print(f"Đang sử dụng ontology mới từ: {ontology_path}")
-    if is_loaded == False:
-        current_ontology, relation = load_ontologies(type_ontology, ontology_path)
-        is_loaded = True
-
-    if current_ontology is None or relation is None:
-        return jsonify({"error": "Không thể tải Ontology mới cho chat"}), 500
-
-    data = request.json
-    question = data.get("message", "")
-
-    if not question:
-        return jsonify({"error": "Không có tin nhắn được cung cấp"}), 400
-
-    start_time = time.time()
-    bot_response = ""
+    bot_response = "Xin lỗi, đã có lỗi xảy ra."
+    
     try:
-        entities = find_entities_from_question_PP1(client, relation, question, chat_histories[current_user_id])
-        print('[New] tìm được: ', entities)
+        if chat_mode == 'available':
+            # --- Logic cho chat với ontology có sẵn ---
+            ontology, relation = load_ontologies("Available")
+            if ontology and relation:
+                entities = find_entities_from_question_PP1(client, relation, question, chat_histories[session_id])
+                raw_info = find_question_info(ontology, model_embedding, question, json.loads(entities))
+                if not raw_info: raw_info.append("Không có thông tin cho câu hỏi từ ontology mặc định.")
+                k_similar_info = find_similar_info_from_raw_informations(model_embedding, question, raw_info)
+                bot_response = generate_response(client, k_similar_info, question, chat_histories[session_id])
+            else:
+                bot_response = "Không thể tải ontology mặc định."
 
-        raw_informations_from_ontology = find_question_info(current_ontology, model_embedding, question, json.loads(entities))
-        if len(raw_informations_from_ontology) == 0:
-            raw_informations_from_ontology.append("[New] Không có thông tin cho câu hỏi từ ontology mới.")
-
-        k_similar_info = find_similar_info_from_raw_informations(model_embedding, question,
-                                                                 raw_informations_from_ontology)
-        bot_response = generate_response(client, k_similar_info, question, chat_histories[current_user_id])
+        elif chat_mode == 'new':
+            # --- Logic cho chat với ontology mới ---
+            ontology_info = get_ontology_state(session_id)
+            if ontology_info and ontology_info.get('status') == 'completed':
+                ontology_path = ontology_info.get('ontology_path')
+                ontology, relation = load_ontologies("New", onto_path=ontology_path)
+                if ontology and relation:
+                    entities = find_entities_from_question_PP1(client, relation, question, chat_histories[session_id])
+                    raw_info = find_question_info(ontology, model_embedding, question, json.loads(entities))
+                    if not raw_info: raw_info.append("Không có thông tin cho câu hỏi từ ontology mới.")
+                    k_similar_info = find_similar_info_from_raw_informations(model_embedding, question, raw_info)
+                    bot_response = generate_response(client, k_similar_info, question, chat_histories[session_id])
+                else:
+                    bot_response = f"Không thể tải ontology mới từ đường dẫn: {ontology_path}"
+            else:
+                bot_response = "Ontology mới chưa sẵn sàng. Vui lòng upload và chờ xử lý xong."
 
     except Exception as e:
+        print(f"Lỗi khi xử lý chat: {e}")
         import traceback
         traceback.print_exc()
-        print(f"Lỗi trong quá trình chat với ontology mới: {e}")
-        bot_response = "Xin lỗi, tôi không thể trả lời câu hỏi của bạn với ontology mới vào lúc này."
+        bot_response = f"Đã xảy ra lỗi khi xử lý yêu cầu của bạn: {e}"
 
-    end_time = time.time()
-    print("Thời gian thực thi (New Ontology Chat):", end_time - start_time, "giây")
-
-    # Lưu vào lịch sử chat
-    chat_histories[current_user_id].append({"sender": "user", "text": question})
-    chat_histories[current_user_id].append({"sender": "bot", "text": bot_response})
-
-    return jsonify({
-        "response": bot_response,
-        "session_id": current_user_id
-    })
-
+    # Thêm phản hồi của bot vào lịch sử
+    chat_histories[session_id].append({"sender": "bot", "text": bot_response})
+    
+    # Gửi phản hồi về cho client trong phòng của họ
+    emit('new_message', {"sender": "bot", "text": bot_response}, room=session_id)
 
 @app.route("/api/get-chat-history", methods=["GET"])
 def get_chat_history():
@@ -575,4 +512,5 @@ if __name__ == "__main__":
     print(f"Redis kết nối: {'Có' if redis_client else 'Không'}")
 
     # Chạy Flask app ở chế độ tuần tự
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # app.run(debug=True, host='0.0.0.0', port=5000)
+    socketio.run(app, debug=True, host='0.0.0.0', port=5000)

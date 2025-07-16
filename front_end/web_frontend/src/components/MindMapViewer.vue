@@ -1,20 +1,27 @@
 <template>
     <div class="mindmap-viewer-container">
-        <div v-if="!processedTreeData || !processedTreeData.data || !processedTreeData.data.keyword" class="no-data-message">
-            <p>Không có dữ liệu để tạo Mindmap. Vui lòng upload PDF.</p>
+        <div v-if="!data || data.length === 0" class="no-data-message">
+            <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="feather feather-git-branch">
+                <line x1="6" y1="3" x2="6" y2="15"></line><circle cx="18" cy="6" r="3"></circle><circle cx="6" cy="18" r="3"></circle><path d="M18 9a9 9 0 0 1-9 9"></path>
+            </svg>
+            <h3>Sơ đồ tư duy của bạn đang tải lên</h3>
+            <p>Hãy đãm bảo rằng tài liệu PDF được tải để bắt đầu tạo mindmap.</p>
         </div>
+
         <div v-else class="mindmap-area" ref="mindmapArea">
             <svg ref="mindmapSvg"></svg>
             <div class="zoom-controls">
-                <button @click="zoomIn" title="Phóng to">+</button>
-                <button @click="zoomOut" title="Thu nhỏ">-</button>
-                <button @click="resetZoom" title="Đặt lại hiển thị">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <circle cx="12" cy="12" r="10"></circle>
-                        <line x1="2" y1="12" x2="22" y2="12"></line>
-                        <line x1="12" y1="2" x2="12" y2="22"></line>
-                    </svg>
+                <button @click="zoomIn" title="Phóng to">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+                </button>
+                <button @click="zoomOut" title="Thu nhỏ">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+                </button>
+                 <button @click="expandAll" title="Mở rộng tất cả">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+                </button>
+                <button @click="resetZoom" title="Căn giữa">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M3 12h1m8-9v1m8 8h1m-9 8v1M5.6 5.6l.7.7m12.1-.7l-.7.7m0 12.1l.7.7m-12.1 0l-.7.7"></path></svg>
                 </button>
             </div>
             <div v-if="tooltip.visible" :style="tooltipStyle" class="mindmap-tooltip">
@@ -25,6 +32,7 @@
 </template>
 
 <script>
+// ... (Phần script không thay đổi logic, chỉ cập nhật vị trí expander)
 import * as d3 from 'd3';
 
 export default {
@@ -37,94 +45,41 @@ export default {
     },
     data() {
         return {
-            svgWidth: 800,
-            svgHeight: 600,
+            hierarchyRoot: null,
             svg: null,
             g: null,
             zoomBehavior: null,
-            transform: d3.zoomIdentity,
-            nodeColors: [
-                "#4a90e2", "#f7941d", "#69b3a2", "#f06969", "#81b214",
-                "#a566ff", "#e056fd", "#2ecc71"
-            ],
-            rootNodeColor: "#2c3e50",
+            nodeColors: ["#3b82f6", "#ef4444", "#10b981", "#f97316", "#8b5cf6", "#ec4899"],
+            rootNodeColor: "#111827",
             tooltip: {
                 visible: false,
                 content: '',
                 x: 0,
                 y: 0
             },
-            // Cấu hình động cho node và khoảng cách
-            nodePadding: { horizontal: 25, vertical: 20 },
-            minNodeWidth: 140,
-            maxNodeWidth: 280,
-            nodeHeightPerLine: 22,
-            minNodeHeight: 50,
-            // Các giá trị này sẽ được tính toán động
-            calculatedHorizontalSeparation: 350,
-            calculatedVerticalSeparation: 120,
+            transitionDuration: 500,
+            nodeWidth: 160,
+            nodeHeight: 50,
+            transitionDuration:300,
         };
     },
+    // ... (computed, watch, mounted, beforeUnmount không đổi)
     computed: {
-        processedTreeData() {
-            if (this.data.length === 0) {
-                return null;
-            }
-
-            const dataMap = new Map(
-                this.data.map(d => [d.index, { ...d, children: [] }])
-            );
-
-            let rootNode = null;
-            this.data.forEach(item => {
-                if (item.parent_index === -1) {
-                    rootNode = dataMap.get(item.index);
-                } else {
-                    const parent = dataMap.get(item.parent_index);
-                    if (parent) {
-                        parent.children.push(dataMap.get(item.index));
-                    }
-                }
-            });
-
-            if (!rootNode) {
-                console.warn("No root node found or data is malformed.");
-                return null;
-            }
-
-            // Gán màu cho từng nhánh từ nút gốc
-            let colorIndex = 0;
-            rootNode.children.forEach(mainBranch => {
-                const color = this.nodeColors[colorIndex % this.nodeColors.length];
-                colorIndex++;
-                const assignBranchColor = node => {
-                    node.color = color;
-                    if (node.children) {
-                        node.children.forEach(child => assignBranchColor(child));
-                    }
-                };
-                assignBranchColor(mainBranch);
-            });
-            rootNode.color = this.rootNodeColor;
-
-            return d3.hierarchy(rootNode, d => d.children);
-        },
         tooltipStyle() {
             return {
                 top: `${this.tooltip.y}px`,
                 left: `${this.tooltip.x}px`,
-                transform: 'translate(-50%, -110%)',
+                transform: 'translate(-50%, -120%)',
                 display: this.tooltip.visible ? 'block' : 'none',
             };
         }
     },
     watch: {
         data: {
-            handler(newVal) {
-                if (newVal && newVal.length > 0) {
+            handler(newData) {
+                if (newData && newData.length > 0) {
                     this.$nextTick(() => {
-                        this.updateSvgSize();
-                        this.setupMindmap();
+                        this.processDataAndInitialize();
                     });
                 } else {
                     this.cleanupMindmap();
@@ -135,527 +90,431 @@ export default {
         }
     },
     mounted() {
-        this.updateSvgSize();
-        window.addEventListener('resize', this.updateSvgSize);
+        window.addEventListener('resize', this.handleResize);
     },
     beforeUnmount() {
-        this.cleanupMindmap();
-        window.removeEventListener('resize', this.updateSvgSize);
+        window.removeEventListener('resize', this.handleResize);
     },
     methods: {
-        updateSvgSize() {
-            if (this.$refs.mindmapArea && this.$refs.mindmapSvg) {
-                const rect = this.$refs.mindmapArea.getBoundingClientRect();
-                this.svgWidth = rect.width;
-                this.svgHeight = rect.height;
-                d3.select(this.$refs.mindmapSvg)
-                    .attr("width", this.svgWidth)
-                    .attr("height", this.svgHeight);
-                if (this.processedTreeData) {
-                    this.setupMindmap();
+        processDataAndInitialize() {
+            if (!this.data || this.data.length === 0) return;
+
+            const dataMap = new Map(this.data.map(d => [d.index, { ...d, children: [] }]));
+            let rootObject = null;
+            this.data.forEach(item => {
+                if (item.parent_index === -1) {
+                    rootObject = dataMap.get(item.index);
+                } else {
+                    const parent = dataMap.get(item.parent_index);
+                    if (parent) {
+                        parent.children.push(dataMap.get(item.index));
+                    }
                 }
-            }
-        },
-
-        // Tính toán kích thước động cho mindmap
-        calculateDynamicSpacing() {
-            if (!this.processedTreeData) return;
-
-            // Đếm số node và tính toán độ sâu của cây
-            let nodeCount = 0;
-            let maxDepth = 0;
-            let maxChildrenAtLevel = 0;
-            const levelCounts = {};
-
-            this.processedTreeData.each(d => {
-                nodeCount++;
-                maxDepth = Math.max(maxDepth, d.depth);
-                
-                if (!levelCounts[d.depth]) {
-                    levelCounts[d.depth] = 0;
-                }
-                levelCounts[d.depth]++;
-                maxChildrenAtLevel = Math.max(maxChildrenAtLevel, levelCounts[d.depth]);
             });
 
-            // Tính toán khoảng cách dựa trên kích thước container và số lượng node
-            const containerAspectRatio = this.svgWidth / this.svgHeight;
-            const targetAspectRatio = 1.6; // Tỷ lệ hình chữ nhật lý tưởng
+            if (!rootObject) return;
 
-            // Điều chỉnh khoảng cách ngang
-            const baseHorizontalSeparation = 200;
-            const maxHorizontalSeparation = 500;
-            const minHorizontalSeparation = 150;
+            rootObject.color = this.rootNodeColor;
+            rootObject.children.forEach((mainBranch, i) => {
+                const color = this.nodeColors[i % this.nodeColors.length];
+                const assignBranchColor = node => {
+                    node.color = color;
+                    if (node.children) node.children.forEach(assignBranchColor);
+                };
+                assignBranchColor(mainBranch);
+            });
 
-            // Tính toán dựa trên chiều rộng container và số level
-            let horizontalFactor = this.svgWidth / (maxDepth * baseHorizontalSeparation);
-            horizontalFactor = Math.max(0.5, Math.min(2, horizontalFactor));
-            
-            this.calculatedHorizontalSeparation = Math.max(
-                minHorizontalSeparation,
-                Math.min(maxHorizontalSeparation, baseHorizontalSeparation * horizontalFactor)
-            );
-
-            // Điều chỉnh khoảng cách dọc
-            const baseVerticalSeparation = 80;
-            const maxVerticalSeparation = 200;
-            const minVerticalSeparation = 60;
-
-            // Tính toán dựa trên chiều cao container và số node trên mỗi level
-            let verticalFactor = this.svgHeight / (maxChildrenAtLevel * baseVerticalSeparation);
-            verticalFactor = Math.max(0.6, Math.min(2.5, verticalFactor));
-
-            this.calculatedVerticalSeparation = Math.max(
-                minVerticalSeparation,
-                Math.min(maxVerticalSeparation, baseVerticalSeparation * verticalFactor)
-            );
-
-            // Điều chỉnh để đạt được tỷ lệ hình chữ nhật mong muốn
-            if (containerAspectRatio > targetAspectRatio) {
-                // Container rộng hơn mong muốn -> tăng khoảng cách ngang
-                this.calculatedHorizontalSeparation *= 1.2;
-            } else if (containerAspectRatio < targetAspectRatio) {
-                // Container cao hơn mong muốn -> tăng khoảng cách dọc
-                this.calculatedVerticalSeparation *= 1.2;
-            }
-
-            console.log(`Dynamic spacing calculated: H=${this.calculatedHorizontalSeparation.toFixed(0)}, V=${this.calculatedVerticalSeparation.toFixed(0)}`);
+            this.initializeD3(rootObject);
         },
 
-        setupMindmap() {
-            if (this.svg) {
-                this.svg.selectAll("*").remove();
-            } else {
-                this.svg = d3.select(this.$refs.mindmapSvg);
-            }
+        initializeD3(rootObject) {
+            if (this.svg) this.svg.selectAll("*").remove();
+            const container = this.$refs.mindmapArea;
+            if (!container) return;
 
-            this.g = this.svg.append('g');
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+
+            this.svg = d3.select(this.$refs.mindmapSvg)
+                .attr("width", width)
+                .attr("height", height)
+                .attr("viewBox", [-width / 2, -height / 2, width, height]);
+
+            this.g = this.svg.append("g");
 
             this.zoomBehavior = d3.zoom()
                 .scaleExtent([0.1, 4])
-                .on("zoom", event => {
-                    this.transform = event.transform;
-                    this.g.attr("transform", this.transform);
+                .on("zoom", (event) => {
+                    this.g.attr("transform", event.transform);
                 });
+
             this.svg.call(this.zoomBehavior);
 
-            // Tính toán khoảng cách động trước khi xử lý text
-            this.calculateDynamicSpacing();
+            this.hierarchyRoot = d3.hierarchy(rootObject, d => d.children);
+            this.hierarchyRoot.x0 = height / 2;
+            this.hierarchyRoot.y0 = 0;
 
-            // Tiền xử lý text để tính toán kích thước node
-            const tempSvg = d3.select("body").append("svg").style("position", "absolute").style("left", "-9999px");
-            const tempText = tempSvg.append("text")
-                .attr("class", "node-text")
-                .style("font-weight", "bold")
-                .style("font-family", "K2D, sans-serif");
-
-            this.processedTreeData.each(d => {
-                const fontSize = d.data.type === 'root_node' ? 20 : 18;
-                tempText.style("font-size", `${fontSize}px`);
-
-                const keyword = d.data.keyword || '';
-                const words = keyword.split(/\s+/);
-                let currentLine = '';
-                let lineCount = 0;
-                let maxWidth = 0;
-                const wrappedLines = [];
-
-                for (let i = 0; i < words.length; i++) {
-                    const testLine = currentLine + (words[i] ? (i > 0 ? " " : "") + words[i] : "");
-                    tempText.text(testLine);
-                    const currentTextWidth = tempText.node().getComputedTextLength();
-
-                    if (currentTextWidth > this.maxNodeWidth && currentLine !== '') {
-                        wrappedLines.push(currentLine);
-                        lineCount++;
-                        maxWidth = Math.max(maxWidth, tempText.text(currentLine).node().getComputedTextLength());
-                        currentLine = words[i];
-                    } else {
-                        currentLine = testLine;
-                    }
+            this.hierarchyRoot.descendants().forEach(d => {
+                d._children = d.children;
+                if (d.depth > 1) {
+                    d.children = null;
                 }
-
-                wrappedLines.push(currentLine);
-                lineCount++;
-                maxWidth = Math.max(maxWidth, tempText.text(currentLine).node().getComputedTextLength());
-
-                d.data.wrappedKeyword = wrappedLines;
-                d.data.nodeCalculatedWidth = Math.max(this.minNodeWidth, maxWidth + this.nodePadding.horizontal * 2);
-                d.data.nodeCalculatedHeight = Math.max(this.minNodeHeight, lineCount * (fontSize * 1.2) + this.nodePadding.vertical * 2);
-                d.data.currentFontSize = fontSize;
             });
 
-            tempSvg.remove();
+            this.update(this.hierarchyRoot);
+            this.centerOnNode(this.hierarchyRoot);
+        },
 
-            // Thiết lập Tree Layout với khoảng cách động
-            const treeLayout = d3.tree()
-                .nodeSize([this.calculatedVerticalSeparation, this.calculatedHorizontalSeparation])
-                .separation((a, b) => {
-                    // Tính toán separation động dựa trên kích thước node thực tế
-                    const nodeWidthA = a.data.nodeCalculatedWidth || this.minNodeWidth;
-                    const nodeWidthB = b.data.nodeCalculatedWidth || this.minNodeWidth;
-                    const nodeHeightA = a.data.nodeCalculatedHeight || this.minNodeHeight;
-                    const nodeHeightB = b.data.nodeCalculatedHeight || this.minNodeHeight;
+        update(source) {
+            const treeLayout = d3.tree().nodeSize([this.nodeHeight + 40, this.nodeWidth + 80]);
+            treeLayout(this.hierarchyRoot);
 
-                    // Tính toán hệ số separation dựa trên kích thước container
-                    const baseSeparation = a.parent === b.parent ? 1.2 : 2.5;
-                    const sizeFactor = Math.max(nodeWidthA, nodeWidthB) / this.minNodeWidth;
-                    const containerFactor = Math.min(this.svgWidth, this.svgHeight) / 600; // Base size 600px
+            const nodes = this.hierarchyRoot.descendants().reverse();
+            const links = this.hierarchyRoot.links();
 
-                    return baseSeparation * sizeFactor * Math.max(0.7, containerFactor);
+            const node = this.g.selectAll("g.node")
+                .data(nodes, d => d.data.index);
+
+            const nodeEnter = node.enter().append("g")
+                .attr("class", "node")
+                .attr("transform", `translate(${source.y0},${source.x0})`)
+                .on('mouseover', (event, d) => this.showTooltip(event, d))
+                .on('mouseout', () => this.hideTooltip());
+
+            // SỬA ĐỔI: Quay lại thiết kế node nền màu
+            nodeEnter.append("foreignObject")
+                .attr("width", this.nodeWidth)
+                .attr("height", this.nodeHeight)
+                .attr("x", -this.nodeWidth / 2)
+                .attr("y", -this.nodeHeight / 2)
+                .style("overflow", "visible")
+                .append("xhtml:div")
+                .attr("class", "node-label-wrapper")
+                .style("width", `${this.nodeWidth}px`)
+                .style("height", `${this.nodeHeight}px`)
+                .style("background-color", d => d.data.color || '#ccc')
+                .html(d => `<div class="node-label">${d.data.keyword}</div>`);
+
+            // SỬA ĐỔI: Đặt nút expander ở góc trên bên phải của node
+            const expander = nodeEnter.append("g")
+                .attr("class", "expander")
+                // Vị trí mới: Góc trên-phải, có offset vào trong 1 chút
+                .attr("transform", `translate(${this.nodeWidth / 1.58}, ${-this.nodeHeight / 3.58})`)
+                .style("cursor", "pointer")
+                .on("click", (event, d) => {
+                    event.stopPropagation();
+                    this.toggleNode(d);
+                })
+                .style("display", d => d._children ? "block" : "none");
+
+            expander.append("rect")
+                    .attr("x", -11)
+                    .attr("y", -11)
+                    .attr("width", 22)
+                    .attr("height", 22)
+                    .attr("rx", 8)
+                    .attr("ry", 8)
+                    .attr("class", "expander-rect");
+
+            expander.append("text")
+                .attr("class", "expander-text")
+                .attr("dy", "0.35em")
+                .text(d => d.children ? "−" : "+");
+
+            const nodeUpdate = node.merge(nodeEnter).transition()
+                .duration(this.transitionDuration)
+                .attr("transform", d => `translate(${d.y},${d.x})`);
+            
+            nodeUpdate.select(".expander text").text(d => d.children ? "−" : "+");
+            nodeUpdate.select(".expander").style("display", d => d._children || d.children ? "block" : "none");
+
+            node.exit().transition()
+                .duration(this.transitionDuration)
+                .attr("transform", `translate(${source.y},${source.x})`)
+                .style("opacity", 0)
+                .remove();
+            
+            // ... (Phần xử lý link không đổi)
+            const link = this.g.selectAll("path.link")
+                .data(links, d => d.target.data.index);
+
+            const linkEnter = link.enter().insert("path", "g")
+                .attr("class", "link")
+                .attr("d", d => {
+                    const o = { x: source.x0 || 0, y: source.y0 || 0 };
+                    return d3.linkHorizontal()({ source: o, target: o });
                 });
 
-            const root = treeLayout(this.processedTreeData);
+            link.merge(linkEnter).transition()
+                .duration(this.transitionDuration)
+                .attr("d", d3.linkHorizontal().x(d => d.y).y(d => d.x));
 
-            // Render các đường nối
-            this.g.selectAll('.link')
-                .data(root.links())
-                .enter()
-                .append('path')
-                .attr('class', 'link')
-                .attr('fill', 'none')
-                .attr('stroke', d => d.target.data.color || '#ccc')
-                .attr('stroke-width', 2)
-                .attr("d", d3.linkHorizontal()
-                    .x(d => d.y)
-                    .y(d => d.x)
-                );
-
-            // Render các nút
-            const nodeEnter = this.g.selectAll('.node')
-                .data(root.descendants())
-                .enter()
-                .append('g')
-                .attr('class', d => `node node-${d.data.type}`)
-                .attr('transform', d => `translate(${d.y}, ${d.x})`);
-
-            // Thêm hình chữ nhật
-            nodeEnter.append('rect')
-                .attr('class', 'node-rect')
-                .attr('rx', 8)
-                .attr('ry', 8)
-                .attr('width', d => d.data.nodeCalculatedWidth)
-                .attr('height', d => d.data.nodeCalculatedHeight)
-                .attr('x', d => -d.data.nodeCalculatedWidth / 2)
-                .attr('y', d => -d.data.nodeCalculatedHeight / 2)
-                .attr('fill', d => d.data.color || "#fff")
-                .attr('stroke', '#999')
-                .attr('stroke-width', 2);
-
-            // Thêm text đã xuống dòng
-            nodeEnter.selectAll('.node-text')
-                .data(d => d.data.wrappedKeyword.map((line, i) => ({ line: line, parent: d, index: i })))
-                .enter()
-                .append('text')
-                .attr('class', 'node-text')
-                .attr('x', 0)
-                .attr('y', (d) => {
-                    const totalLines = d.parent.data.wrappedKeyword.length;
-                    const lineHeight = d.parent.data.currentFontSize * 1.2;
-                    const startY = -(totalLines - 1) * (lineHeight / 2);
-                    return startY + d.index * lineHeight + (d.parent.data.currentFontSize / 4);
+            link.exit().transition()
+                .duration(this.transitionDuration)
+                .attr("d", d => {
+                    const o = { x: source.x, y: source.y };
+                    return d3.linkHorizontal()({ source: o, target: o });
                 })
-                .attr('text-anchor', 'middle')
-                .style('fill', d => {
-                    const nodeColor = d.parent.data.color || "#fff";
-                    if (d.parent.data.type === 'root_node') {
-                        return 'white';
-                    } else {
-                        return this.isLightColor(nodeColor) ? '#333' : 'white';
-                    }
-                })
-                .style('font-size', d => `${d.parent.data.currentFontSize}px`)
-                .style('font-weight', 'bold')
-                .style('font-family', 'K2D, sans-serif')
-                .text(d => d.line);
+                .remove();
 
-            // Xử lý sự kiện hover
-            nodeEnter.on('mouseover', (event, d) => {
-                if (d.data.summarized_paragraph) {
-                    this.tooltip.content = d.data.summarized_paragraph;
-                    this.tooltip.visible = true;
-
-                    const nodeBBox = event.currentTarget.getBoundingClientRect();
-                    let tooltipX = nodeBBox.left + nodeBBox.width / 2;
-                    let tooltipY = nodeBBox.top;
-
-                    const tooltipWidth = 400;
-                    const tooltipHeight = 100;
-
-                    if (tooltipX + tooltipWidth / 2 > window.innerWidth) {
-                        tooltipX = window.innerWidth - tooltipWidth / 2 - 10;
-                    }
-                    if (tooltipX - tooltipWidth / 2 < 0) {
-                        tooltipX = tooltipWidth / 2 + 10;
-                    }
-
-                    if (tooltipY - tooltipHeight < 0) {
-                        tooltipY = nodeBBox.bottom + 10;
-                    }
-
-                    this.tooltip.x = tooltipX;
-                    this.tooltip.y = tooltipY;
-                }
-            })
-            .on('mouseout', () => {
-                this.tooltip.visible = false;
+            nodes.forEach(d => {
+                d.x0 = d.x;
+                d.y0 = d.y;
             });
-
-            // Tự động căn giữa mindmap với tỷ lệ phù hợp
-            this.centerMindmapWithOptimalView();
+        },
+        // ... (Các methods còn lại không đổi)
+        toggleNode(d) {
+            if (d.children) {
+                d._children = d.children;
+                d.children = null;
+            } else {
+                d.children = d._children;
+                d._children = null;
+            }
+            this.update(d);
         },
 
-        isLightColor(hexColor) {
-            let r = 0, g = 0, b = 0;
-            if (hexColor.length === 4) {
-                r = parseInt(hexColor[1] + hexColor[1], 16);
-                g = parseInt(hexColor[2] + hexColor[2], 16);
-                b = parseInt(hexColor[3] + hexColor[3], 16);
-            } else if (hexColor.length === 7) {
-                r = parseInt(hexColor.substring(1, 3), 16);
-                g = parseInt(hexColor.substring(3, 5), 16);
-                b = parseInt(hexColor.substring(5, 7), 16);
+         expandAll() {
+            if (!this.hierarchyRoot) return;
+            
+            if (this.isFullyExpanded) {
+                // Nếu đang bung hết -> Thu lại
+                this.collapseAll();
+            } else {
+                // Nếu đang thu -> Bung ra
+                const expandRecursive = (node) => {
+                if (node._children) {
+                    node.children = node._children;
+                    node._children = null;
+                }
+                if (node.children) {
+                    node.children.forEach(expandRecursive);
+                }
+            };
+            expandRecursive(this.hierarchyRoot);
+            this.update(this.hierarchyRoot);
             }
-            const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
-            return luminance > 0.5;
+
+            // Đảo ngược trạng thái
+            this.isFullyExpanded = !this.isFullyExpanded;
         },
 
-        cleanupMindmap() {
-            if (this.svg) {
-                this.svg.selectAll("*").remove();
+        // SỬA ĐỔI LOGIC 3: Hàm mới để thu gọn mindmap về ban đầu
+        collapseAll() {
+            if (!this.hierarchyRoot) return;
+            const originalDuration = this.transitionDuration;
+            this.transitionDuration = 150; // Giảm animation lúc collapse
+            this.hierarchyRoot.descendants().forEach(d => {
+                // Thu gọn tất cả các node từ cấp 1 trở đi
+                if (d.depth >= 1) { 
+                    if (d.children) {
+                        d._children = d.children;
+                        d.children = null;
+                    }
+                }
+            });
+            this.update(this.hierarchyRoot);
+            setTimeout(() => {
+                this.transitionDuration = originalDuration;
+            }, 200);
+        },
+
+        showTooltip(event, d) {
+            if (d.data.summarized_paragraph) {
+                this.tooltip.content = d.data.summarized_paragraph;
+                this.tooltip.visible = true;
+                this.tooltip.x = event.pageX;
+                this.tooltip.y = event.pageY;
             }
+        },
+        hideTooltip() {
             this.tooltip.visible = false;
         },
 
-        zoomIn() {
-            const newScale = this.transform.k * 1.2;
-            this.svg.transition().duration(200).call(this.zoomBehavior.scaleTo, newScale);
+        handleResize() {
+            if (!this.svg) return;
+            const container = this.$refs.mindmapArea;
+            if (!container) return;
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            this.svg.attr("width", width).attr("height", height)
+                .attr("viewBox", [-width / 2, -height / 2, width, height]);
         },
-
-        zoomOut() {
-            const newScale = this.transform.k / 1.2;
-            this.svg.transition().duration(200).call(this.zoomBehavior.scaleTo, newScale);
+        zoomIn() { if(this.zoomBehavior && this.svg) this.svg.transition().duration(200).call(this.zoomBehavior.scaleBy, 1.2); },
+        zoomOut() { if(this.zoomBehavior && this.svg) this.svg.transition().duration(200).call(this.zoomBehavior.scaleBy, 0.8); },
+        resetZoom() { this.centerOnNode(this.hierarchyRoot); },
+        centerOnNode(node) {
+            if (!this.svg || !this.g || !node || !this.zoomBehavior) return;
+            const t = d3.zoomTransform(this.svg.node());
+            this.svg.transition().duration(750)
+                .call(this.zoomBehavior.translateTo, 0, 0);
         },
-
-        resetZoom() {
-            this.centerMindmapWithOptimalView();
-        },
-
-        centerMindmapWithOptimalView() {
-            if (this.data.length === 0 || !this.processedTreeData || !this.svg || !this.g) {
-                return;
-            }
-
-            // Tạo tree layout tạm thời với khoảng cách động
-            const tempTreeLayout = d3.tree()
-                .nodeSize([this.calculatedVerticalSeparation, this.calculatedHorizontalSeparation])
-                .separation((a, b) => {
-                    const nodeWidthA = a.data.nodeCalculatedWidth || this.minNodeWidth;
-                    const nodeWidthB = b.data.nodeCalculatedWidth || this.minNodeWidth;
-                    const baseSeparation = a.parent === b.parent ? 1.2 : 2.5;
-                    const sizeFactor = Math.max(nodeWidthA, nodeWidthB) / this.minNodeWidth;
-                    const containerFactor = Math.min(this.svgWidth, this.svgHeight) / 600;
-                    return baseSeparation * sizeFactor * Math.max(0.7, containerFactor);
-                });
-
-            const root = tempTreeLayout(this.processedTreeData);
-
-            // Chỉ focus vào node gốc và các node con cấp 1 và 2
-            const focusNodes = [];
-            root.descendants().forEach(d => {
-                if (d.depth <= 2) { // Node gốc (depth 0), cấp 1, và cấp 2
-                    focusNodes.push(d);
-                }
-            });
-
-            if (focusNodes.length === 0) {
-                focusNodes.push(root); // Fallback nếu không có node nào
-            }
-
-            // Tính toán bounding box chỉ cho các node focus
-            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-
-            focusNodes.forEach(d => {
-                const nodeWidth = d.data.nodeCalculatedWidth;
-                const nodeHeight = d.data.nodeCalculatedHeight;
-                const halfWidth = nodeWidth / 2;
-                const halfHeight = nodeHeight / 2;
-
-                minX = Math.min(minX, d.y - halfWidth);
-                maxX = Math.max(maxX, d.y + halfWidth);
-                minY = Math.min(minY, d.x - halfHeight);
-                maxY = Math.max(maxY, d.x + halfHeight);
-            });
-
-            const focusWidth = maxX - minX;
-            const focusHeight = maxY - minY;
-
-            // Tính toán scale để hiển thị rõ ràng khu vực focus
-            const padding = 0.2; // 20% padding để tạo không gian thoải mái
-            const minScale = 0.8; // Scale tối thiểu để đảm bảo text đọc được
-            const maxScale = 2.0; // Scale tối đa để không phóng to quá
-            
-            const scaleX = (this.svgWidth * (1 - padding)) / focusWidth;
-            const scaleY = (this.svgHeight * (1 - padding)) / focusHeight;
-            let scale = Math.min(scaleX, scaleY);
-            
-            // Giới hạn scale trong khoảng hợp lý
-            scale = Math.max(minScale, Math.min(maxScale, scale));
-
-            // Căn giữa khu vực focus
-            const focusCenterX = (minX + maxX) / 2;
-            const focusCenterY = (minY + maxY) / 2;
-            
-            const translateX = this.svgWidth / 2 - focusCenterX * scale;
-            const translateY = this.svgHeight / 2 - focusCenterY * scale;
-
-            const newTransform = d3.zoomIdentity.translate(translateX, translateY).scale(scale);
-
-            this.svg.transition().duration(750).call(this.zoomBehavior.transform, newTransform);
-            
-            console.log(`Focus view: ${focusNodes.length} nodes, scale: ${scale.toFixed(2)}`);
+        cleanupMindmap() {
+            if (this.svg) this.svg.selectAll("*").remove();
+            this.hierarchyRoot = null;
         }
     }
 };
 </script>
 
 <style scoped>
+/* Font chữ hiện đại và dễ đọc */
 .mindmap-viewer-container {
     width: 100%;
     height: 100%;
     position: relative;
     overflow: hidden;
-}
-
-.no-data-message {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: 100%;
-    background: #f5f5f5;
-    border-radius: 8px;
-}
-
-.no-data-message p {
-    color: #666;
-    font-size: 16px;
-    text-align: center;
-    margin: 0;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    background-color: #f8fafc;
 }
 
 .mindmap-area {
-    position: relative;
     width: 100%;
     height: 100%;
-    overflow: hidden;
-    background: #fafafa;
 }
 
+/* Thông báo "Không có dữ liệu" thân thiện hơn */
+.no-data-message {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    color: #64748b;
+    text-align: center;
+}
+.no-data-message svg {
+    color: #94a3b8;
+    margin-bottom: 1.5rem;
+}
+.no-data-message h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #1e293b;
+    margin: 0 0 0.5rem 0;
+}
+.no-data-message p {
+    font-size: 1rem;
+    margin: 0;
+}
+
+/* SỬA ĐỔI: Chuyển bảng điều khiển lên góc trên bên phải */
 .zoom-controls {
     position: absolute;
-    top: 15px;
-    right: 15px;
+    top: 20px; /* Vị trí mới */
+    right: 20px;
     z-index: 10;
     display: flex;
-    gap: 8px;
+    gap: 10px;
+    padding: 10px;
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 12px;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
 }
 
 .zoom-controls button {
-    background: rgba(255, 255, 255, 0.95);
-    border: 1px solid rgba(0, 0, 0, 0.1);
-    border-radius: 6px;
-    padding: 8px 12px;
+    background: rgba(255, 255, 255, 0.5);
+    border: 1px solid transparent;
+    border-radius: 8px;
+    width: 40px;
+    height: 40px;
     cursor: pointer;
-    font-size: 16px;
-    font-weight: bold;
+    color: #1e293b;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    transition: all 0.2s ease;
-    min-width: 36px;
-    min-height: 36px;
+    transition: all 0.2s ease-in-out;
 }
 
 .zoom-controls button:hover {
-    background: rgba(255, 255, 255, 1);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-    transform: translateY(-1px);
-}
-
-.zoom-controls button:active {
-    transform: translateY(0);
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
-}
-
-svg {
-    display: block;
-    width: 100%;
-    height: 100%;
-}
-
-.link {
-    stroke-linecap: round;
-    transition: stroke-width 0.2s ease;
-}
-
-.link:hover {
-    stroke-width: 3;
-}
-
-.node {
-    cursor: pointer;
-    transition: all 0.2s ease;
-}
-
-.node-rect {
-    transition: all 0.2s ease;
-}
-
-.node:hover .node-rect {
-    filter: brightness(1.1);
-    stroke-width: 3;
-}
-
-.node-text {
-    font-size: 15px;
-    font-weight: 700;
-    fill: #333;
-    user-select: none;
-    pointer-events: none;
-    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.8);
-}
-
-.node-root_node .node-rect {
-    stroke: #2c3e50;
-    stroke-width: 3;
-}
-
-.node-root_node .node-text {
-    fill: white;
-    font-weight: 800;
-    font-size: 16px;
-    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+    background: white;
+    transform: translateY(-2px);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    color: #3b82f6;
 }
 
 .mindmap-tooltip {
     position: fixed;
-    background: linear-gradient(135deg, rgba(0, 0, 0, 0.9), rgba(0, 0, 0, 0.8));
-    color: #fff;
-    padding: 12px 16px;
+    background: rgba(29, 41, 59, 0.9);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    color: #f8fafc;
+    padding: 8px 12px;
     border-radius: 8px;
     font-size: 13px;
     line-height: 1.5;
-    max-width: 400px;
-    min-width: 200px;
-    word-wrap: break-word;
-    word-break: break-word;
-    white-space: normal;
+    max-width: 320px;
     pointer-events: none;
     z-index: 1000;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    backdrop-filter: blur(10px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Style cho các thành phần D3 */
+:deep(.link) {
+    fill: none;
+    stroke: #cbd5e1;
+    stroke-width: 1.5px;
+    stroke-opacity: 0.8;
+}
+
+:deep(.node) {
+    cursor: pointer;
+    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));
+    transition: filter 0.3s ease;
+}
+
+:deep(.node:hover) {
+    filter: drop-shadow(0 5px 10px rgba(0,0,0,0.15));
+}
+
+/* SỬA ĐỔI: Thiết kế node nền màu */
+:deep(.node-label-wrapper) {
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    /* Giảm padding để có thêm không gian cho nút expander */
+    padding: 8px 24px 8px 8px;
+    transition: all 0.3s ease;
+    /* background-color được set bằng D3 */
+}
+
+:deep(.node-label) {
+    color: white; /* Text màu trắng trên nền màu */
+    font-weight: 500;
+    font-size: 14px;
+    line-height: 1.4;
+    max-height: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+/* SỬA ĐỔI: Style cho nút +/- trên nền màu */
+:deep(.expander-rect) {
+    fill: rgba(255, 255, 255, 0.2); /* Nền mờ để không quá chói */
+    transition: all 0.2s ease;
+    fill: transparent;
+}
+:deep(.expander-text) {
+    text-anchor: middle;
+    font-size: 18px;
+    font-weight: 400;
+    pointer-events: none;
+    fill: rgba(255, 255, 255, 0.9); /* Màu chữ trắng mờ */
+}
+:deep(.expander:hover .expander-rect) {
+    fill: rgba(255, 255, 255, 0.4);
+}
+:deep(.expander:hover .expander-text) {
+    fill: black;
 }
 </style>

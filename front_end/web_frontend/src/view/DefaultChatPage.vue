@@ -87,12 +87,15 @@ export default {
       chatHistory: [],
       isLoading: false,
       mindmapData: null,
-      showChatBox: false, // Control visibility of the chat box
+      showChatBox: false,
+      sessionId: '',
+      chatMode: 'available'
     };
   },
   async created() {
     await this.fetchChatHistory();
     await this.fetchMindmapData();
+    await this.initializeSessionAndSocket(); 
   },
   updated() {
     this.scrollToBottom();
@@ -111,7 +114,6 @@ export default {
           this.mindmapData = responseData.initial_data;
         } else {
           console.error('Không có dữ liệu Mindmap mặc định.');
-          // Tùy chọn: chuyển hướng hoặc hiển thị thông báo lỗi
         }
       } catch (error) {
         console.error('Lỗi khi lấy dữ liệu Mindmap mặc định:', error);
@@ -130,49 +132,59 @@ export default {
         this.isLoading = false;
       }
     },
-    async sendMessage() {
-      if (!this.userMessage.trim() || this.isLoading) return;
 
+    async initializeSessionAndSocket() {
+      try {
+        const sess = await MindmapService.getSession();
+        this.sessionId = sess.session_id;
+
+        MindmapService.connect(this.sessionId, {
+          onNewMessage: (msg) => {
+            this.chatHistory.push(msg);
+            this.isLoading = false;
+            this.scrollToBottom();
+          },
+          onChatError: (data) => {
+            this.chatHistory.push({ sender: 'bot', text: `Lỗi: ${data.error}` });
+            this.isLoading = false;
+          },
+          onOntologyProgress: () => {},
+          onOntologyComplete: () => {},
+          onOntologyError: () => {}
+        });
+      } catch (error) {
+        console.error('Lỗi khi khởi tạo session/socket:', error);
+      }
+    },
+
+    async sendMessage() {
       const message = this.userMessage;
+      if (!message.trim() || this.isLoading) return;
+
       this.chatHistory.push({ sender: 'user', text: message });
       this.userMessage = '';
       this.isLoading = true;
-      this.scrollToBottom();
 
-      try {
-        const responseData = await MindmapService.chatWithDefaultOntology(message);
-        if (responseData && responseData.response) {
-          this.chatHistory.push({ sender: 'bot', text: responseData.response });
-        } else {
-          this.chatHistory.push({ sender: 'bot', text: 'Xin lỗi, tôi không thể trả lời lúc này.' });
-        }
-      } catch (error) {
-        console.error('Lỗi khi gửi tin nhắn đến Mindmap mặc định:', error);
-        if (error.response && error.response.data && error.response.data.error) {
-          this.chatHistory.push({ sender: 'bot', text: `Lỗi: ${error.response.data.error}` });
-        } else {
-          this.chatHistory.push({ sender: 'bot', text: 'Đã xảy ra lỗi khi trò chuyện với Mindmap mặc định. Vui lòng thử lại.' });
-        }
-      } finally {
-        this.isLoading = false;
-        this.scrollToBottom();
-      }
+      MindmapService.sendMessage(message, this.chatMode, this.sessionId);
+      this.scrollToBottom();
     },
+
     async clearChat() {
       if (confirm('Bạn có chắc chắn muốn xóa toàn bộ lịch sử chat?')) {
         try {
           this.isLoading = true;
           await MindmapService.clearChatHistoryDefault();
           this.chatHistory = [];
-          this.isLoading = false;
           alert('Lịch sử chat đã được xóa!');
         } catch (error) {
           console.error('Lỗi khi xóa lịch sử chat mặc định:', error);
           alert('Không thể xóa lịch sử chat. Vui lòng thử lại.');
+        } finally {
           this.isLoading = false;
         }
       }
     },
+
     scrollToBottom() {
       this.$nextTick(() => {
         const messagesContainer = this.$refs.messagesContainer;
@@ -181,12 +193,18 @@ export default {
         }
       });
     },
+
     goToHome() {
       this.$router.push('/');
     }
+  },
+
+  beforeUnmount() {
+    MindmapService.disconnect();
   }
 };
 </script>
+
 
 <style scoped>
 .default-chat-page-container {
