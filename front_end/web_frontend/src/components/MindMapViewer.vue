@@ -69,7 +69,7 @@ export default {
             return {
                 top: `${this.tooltip.y}px`,
                 left: `${this.tooltip.x}px`,
-                transform: 'translate(-50%, -120%)',
+                transform: 'translate(-50%, -110%)',
                 display: this.tooltip.visible ? 'block' : 'none',
             };
         }

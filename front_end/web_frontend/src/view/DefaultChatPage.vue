@@ -259,7 +259,7 @@ export default {
   bottom: 100px; /* Position above the button */
   right: 30px;
   width: 40%;
-  height: 80%;
+  height: 75%;
   background-color: #ffffff;
   border-radius: 12px;
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.25);
