@@ -31,7 +31,7 @@ class MindmapService {
    */
   async getSession() {
     try {
-      const response = await api.get('/get-session');
+      const response = await api.get('/get-session',{ withCredentials: true });
       return response.data;
     } catch (error) {
       console.error('Lỗi khi lấy session:', error);
@@ -50,7 +50,7 @@ class MindmapService {
   }
   async getSessionInfo () {
     try {
-      const response = await api.get('/session-info');
+      const response = await api.get('/session-info',{ withCredentials: true });
       return response.data;
     } catch (error) {
       console.error('Lỗi khi lấy thông tin session:', error);
@@ -68,7 +68,7 @@ class MindmapService {
   }
   async getChatHistory () {
     try {
-      const response = await api.get('/get-chat-history');
+      const response = await api.get('/get-chat-history',{ withCredentials: true });
       return response.data;
     } catch (error) {
       console.error('Lỗi khi lấy lịch sử chat:', error);
@@ -77,7 +77,7 @@ class MindmapService {
   }
   async  get_available_mindmap () { 
     try {
-      const response = await api.get('/get_available_mindmap');
+      const response = await api.get('/get_available_mindmap',{ withCredentials: true });
       return response.data;
     } catch (error) {
       console.error('Lỗi khi lấy mindmap có sẵn:', error);
@@ -93,7 +93,7 @@ class MindmapService {
    * @returns {Promise<Object>} Một thông báo xác nhận rằng file đã được nhận.
    */
   async uploadPdf(pdfFile, sessionId) {
-    const formData = new FormData();
+    const formData = new FormData();  
     formData.append('pdf_file', pdfFile);
     formData.append('session_id', sessionId); // Server cần session_id để biết gửi tiến trình cho ai
 
@@ -123,7 +123,7 @@ class MindmapService {
       this.socket.disconnect();
     }
 
-    this.socket = io("http://localhost:5000");
+    this.socket = io("http://localhost:5000",{ withCredentials: true });
 
     // Lắng nghe sự kiện kết nối thành công
     this.socket.on('connect', () => {
