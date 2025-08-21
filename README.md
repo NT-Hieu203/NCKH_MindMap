@@ -7,7 +7,7 @@ Hệ thống sẽ giúp trực quan hóa tài liệu thành MindMap. Giúp ngư�
 ![Framework hệ thống](img/newFE.png)
 ---
 ## Framework
-![Framework hệ thống](img/framework.png)
+![Framework hệ thống](img/framework.drawio.svg)
 ## Yêu cầu hệ thống
 
 Trước khi bắt đầu, hãy đảm bảo bạn đã cài đặt các công cụ sau:
