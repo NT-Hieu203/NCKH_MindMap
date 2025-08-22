@@ -28,6 +28,10 @@ app = Flask(__name__)
 # QUAN TRỌNG: Phải set SECRET_KEY trước khi sử dụng session
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'dev_secret_key_for_local_project_12345')
 
+# Khi deploy thật (domain public),bắt buộc dùng HTTPS để cookie session cross-site hoạt động và chỉnh lại cấu hình sau.
+# app.config["SESSION_COOKIE_SAMESITE"] = "None"  
+# app.config["SESSION_COOKIE_SECURE"] = True   # bắt buộc nếu dùng HTTPS
+
 # --- Cấu hình CORS với credentials ---
 CORS(app,
      supports_credentials=True,
@@ -513,4 +517,5 @@ if __name__ == "__main__":
     print(chat_histories)
     # Chạy Flask app ở chế độ tuần tự
     # app.run(debug=True, host='0.0.0.0', port=5000)
-    socketio.run(app, debug=True, host='0.0.0.0', port=5000)
+    socketio.run(app, debug=False, host='0.0.0.0', port=5000)
+    # Để chế độ debug ở True khi đang phát triển hệ thống và False khi demo hệ thống
