@@ -96,7 +96,6 @@ class MindmapService {
     const formData = new FormData();  
     formData.append('pdf_file', pdfFile);
     formData.append('session_id', sessionId); // Server cần session_id để biết gửi tiến trình cho ai
-
     try {
       const response = await api.post('/upload-pdf', formData, {
         headers: {

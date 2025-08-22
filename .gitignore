@@ -1,2 +1,4 @@
 *.env 
 model/model_embedding/
+back_end/generated_ontologies/
+back_end/pdf_upload/

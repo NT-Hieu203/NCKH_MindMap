@@ -510,7 +510,7 @@ if __name__ == "__main__":
     print("Đang khởi động Flask app...")
     print(f"Secret key được set: {'Có' if app.config['SECRET_KEY'] else 'Không'}")
     print(f"Redis kết nối: {'Có' if redis_client else 'Không'}")
-
+    print(chat_histories)
     # Chạy Flask app ở chế độ tuần tự
     # app.run(debug=True, host='0.0.0.0', port=5000)
     socketio.run(app, debug=True, host='0.0.0.0', port=5000)

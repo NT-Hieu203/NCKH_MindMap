@@ -32,8 +32,17 @@
   export default {
     name: 'HomePage',
     methods: {
-      goToUpload() {
-        this.$router.push('/upload');
+      async goToUpload() {
+        try {
+          // Reset session trước khi chuyển đến trang chat với ontology mặc định
+          await MindmapService.resetSession();
+          console.log("Session đã được khởi động");
+        } catch (error) {
+          console.error("Không thể khởi động session", error);
+          // Xử lý lỗi nếu cần, nhưng vẫn cố gắng chuyển hướng để người dùng có thể tiếp tục
+        } finally {
+          this.$router.push('/upload');
+        }
       },
       async goToDefaultChat() {
         try {
