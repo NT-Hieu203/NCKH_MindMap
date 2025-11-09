@@ -1,3 +1,4 @@
+
 from flask import Flask, request, jsonify, session
 from flask_socketio import SocketIO, emit, join_room, leave_room
 from flask_cors import CORS
@@ -128,7 +129,11 @@ chat_histories = {}
 
 # Redis client để quản lý trạng thái ontology cho từng session
 try:
-    redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
+    # redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
+
+    REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+    redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+    
     # Test connection
     redis_client.ping()
     print("Kết nối Redis thành công")
