@@ -10,12 +10,12 @@ Bạn không cần chạy thủ công Node hoặc Python. Mọi thành phần đ
 
 ---
 
-## ✅ 1. Khởi động toàn bộ hệ thống
+## Khởi động toàn bộ hệ thống
 
 Tại thư mục gốc của dự án, chạy:
 
 ```bash
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
 Sau khi Docker chạy xong bạn có thể thưởng thức ứng dụng với đường dẫn sau: **http://localhost/**
